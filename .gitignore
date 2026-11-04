@@ -1,0 +1,19 @@
+# Dependencies and build output
+node_modules/
+client/dist/
+*.tsbuildinfo
+
+# Local runtime data (SQLite DB, uploaded evidence, generated reports): recreate with `npm run seed`
+server/data/
+
+# Environment / secrets
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.log
