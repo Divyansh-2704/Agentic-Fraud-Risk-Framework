@@ -86,7 +86,8 @@ fraud-framework/
   server/src/
     workflow/               Pure state machines (unit-tested): alert.ts, case.ts, routing.ts, financial.ts
     services/               DB-backed services: alerts, cases, report (docx), dashboard, common (Chinese wall, outbox, fuzzy search)
-    app.ts                  Express routes;  db.ts: node:sqlite schema + helpers;  seed.ts: replays real workflows
+    index.ts                Entry point (default-exports the Express app for Vercel; auto-seeds an empty DB)
+    routes.ts               Express routes;  db.ts: node:sqlite schema + helpers;  seed.ts: replays real workflows
   server/test/              workflow.test.ts (rules), e2e.test.ts (whole lifecycle over HTTP)
   client/src/
     pages/                  One page per screen; caseSections.tsx holds every case section

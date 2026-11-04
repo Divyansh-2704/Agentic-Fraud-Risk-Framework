@@ -2,7 +2,7 @@
 // -> closed (final report, post tasks) -> recovery maker-checker -> re-open.
 import type { AddressInfo } from 'node:net'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { createApp } from '../src/app.js'
+import { createApp } from '../src/routes.js'
 import { get } from '../src/db.js'
 import { resetDb, seedConfig, seedCustomers, seedUsers } from '../src/seed.js'
 
