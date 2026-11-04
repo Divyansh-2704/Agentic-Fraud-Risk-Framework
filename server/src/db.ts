@@ -1,6 +1,7 @@
 import type { DatabaseSync as DatabaseSyncT } from 'node:sqlite'
 import { createRequire } from 'node:module'
 import { mkdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -9,7 +10,8 @@ const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof
 type DatabaseSync = DatabaseSyncT
 
 const here = dirname(fileURLToPath(import.meta.url))
-export const DATA_DIR = process.env.FCMS_DATA_DIR ?? join(here, '..', 'data')
+// On Vercel (serverless) only /tmp is writable, and it is ephemeral: the demo DB is re-seeded per instance (see index.ts).
+export const DATA_DIR = process.env.FCMS_DATA_DIR ?? (process.env.VERCEL ? join(tmpdir(), 'fcms') : join(here, '..', 'data'))
 export const UPLOAD_DIR = join(DATA_DIR, 'uploads')
 mkdirSync(UPLOAD_DIR, { recursive: true })
 
