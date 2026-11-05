@@ -35,6 +35,7 @@ export function Layout({ children }: { children: ReactNode }) {
             <div className="nav-group">Overview</div>
             {link('/', 'Home')}
             {link('/process', 'Process map')}
+            {link('/scenarios', 'Test scenarios')}
             <div className="nav-group">Stage A · Alerts (FAMS)</div>
             {link('/alerts', 'Alert queue', c.queue)}
             {link('/prevention', 'Prevention desk')}

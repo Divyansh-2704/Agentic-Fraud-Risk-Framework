@@ -10,6 +10,8 @@ import * as C from './services/cases.js'
 import { getUser, hasRole, HttpError, listUsers, forbidden, bad, notFound, canSeeCase } from './services/common.js'
 import { dashboard, processCounts } from './services/dashboard.js'
 import { buildCaseReport } from './services/report.js'
+import { scenarioRecordIds } from '../../shared/src/scenarios.js'
+import { seedAll } from './seed.js'
 
 declare global { namespace Express { interface Request { user: User } } }
 
@@ -45,6 +47,15 @@ export function createApp() {
     checklistTemplates: CHECKLIST_TEMPLATES, alertSubclass: ALERT_SUBCLASS, preventionDecisions: PREVENTION_DECISIONS, postTaskTypes: POST_TASK_TYPES,
     emailTemplates: Object.entries(A.ALERT_EMAIL_TEMPLATES).map(([id, t]) => ({ id, ...t })),
   })))
+
+  // ---------- Test-scenario pack ----------
+  app.get('/api/scenarios/status', h(() => Object.fromEntries(scenarioRecordIds().map((id) => [id,
+    get<{ status: string }>('SELECT status FROM alerts WHERE id = ?', id)?.status ?? get<{ status: string }>('SELECT status FROM cases WHERE id = ?', id)?.status ?? null]))))
+  app.post('/api/admin/reset', h(async (req) => {
+    if (!hasRole(req.user, 'SUPER_USER')) throw forbidden('Only a super user can reset the demo data.')
+    await seedAll()
+    return { ok: true }
+  }))
 
   // ---------- Config (FR-CASE-035 "X" configurable by FP&I; others super user) ----------
   app.get('/api/config', h(() => Object.fromEntries(CONFIG_KEYS.map((k) => [k, getConfig(k, null)]))))

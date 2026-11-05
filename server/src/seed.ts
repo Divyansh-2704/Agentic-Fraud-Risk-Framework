@@ -7,6 +7,7 @@ import { AGENTS } from '../../shared/src/index.js'
 import * as A from './services/alerts.js'
 import * as C from './services/cases.js'
 import { getUser } from './services/common.js'
+import { seedScenarios } from './scenarios.js'
 
 // ---------- deterministic randomness ----------
 let seed = 20261103
@@ -51,6 +52,7 @@ export function seedConfig() {
     'Advance fee scam': ['Victim Customer Contacted', 'SWIFT Cancellation Initiated', 'Case Reported to Police by Call'],
     'Velocity breach': ['Victim Customer Contacted'],
     'Staff anomaly': ['Others'],
+    'High-risk counterparty': ['Victim Customer Contacted', 'SWIFT Cancellation Initiated', 'Lien Amount', 'Case Reported to Police by Email'],
     '*': ['Victim Customer Contacted'],
   })
   setConfig('checklistByCategory', {
@@ -316,6 +318,10 @@ async function main() {
   // (n) FP&I asks Fraud Ops to create a case (FR-CASE-02) + auto case from a CRM SR (FR-CASE-01)
   { at(20 * HOUR); C.createCase(rashid, { cif: custs[24], description: 'FP&I received an external bank notification about funds from this customer. Please perform initial checks and precautionary steps.' }) }
   { at(6 * HOUR); C.createCase(sup, { cif: custs[25], srNumber: 'SR-55120934', description: 'Customer complaint SR: unrecognised card transactions abroad.' }, { system: true }) }
+
+  // (o) Test-scenario pack: fixed-ID records for every alert / case situation (see shared/src/scenarios.ts)
+  setClock(null)
+  await seedScenarios()
 
   setClock(null)
   A.sweepAlerts()

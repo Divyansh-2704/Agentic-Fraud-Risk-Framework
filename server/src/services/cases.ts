@@ -197,12 +197,14 @@ function audit(caseId: string, actor: string, action: string, from: string | nul
 }
 
 // ---------- Creation (FR-CASE-01..04, 093) ----------
-export function createCase(u: User, body: { type?: 'STANDARD' | 'WHISTLEBLOWER'; cif?: string; description?: string; origin?: string; srNumber?: string; entity?: string }, opts: { alertId?: string; inherit?: Row; precautions?: CaseData['precautions']; system?: boolean } = {}) {
+export function createCase(u: User, body: { type?: 'STANDARD' | 'WHISTLEBLOWER'; cif?: string; description?: string; origin?: string; srNumber?: string; entity?: string }, opts: { alertId?: string; inherit?: Row; precautions?: CaseData['precautions']; system?: boolean; id?: string } = {}) {
   const type = body.type ?? 'STANDARD'
   if (type === 'WHISTLEBLOWER' && !isFpi(u)) throw forbidden('Only FP&I can create whistleblower cases (FR-CASE-093).')
-  if (type === 'STANDARD' && !opts.system && !hasRole(u, 'FO_MAKER', 'FO_ANALYST', 'FPI_INVESTIGATOR', 'FPI_REVIEWER', 'FPI_APPROVER', 'SUPER_USER')) throw forbidden('Your role cannot create cases.')
+  // HR / Governance analysts may raise a case from an alert in their own queue (Sheet 2, step 10); it lands in the Fraud Ops Maker pool.
+  const fromOwnAlert = !!opts.alertId && hasRole(u, 'HR', 'GOVERNANCE')
+  if (type === 'STANDARD' && !opts.system && !fromOwnAlert && !hasRole(u, 'FO_MAKER', 'FO_ANALYST', 'FPI_INVESTIGATOR', 'FPI_REVIEWER', 'FPI_APPROVER', 'SUPER_USER')) throw forbidden('Your role cannot create cases.')
   const year = new Date().getFullYear()
-  const id = nextId(type === 'WHISTLEBLOWER' ? `WB-${year}-` : `FC-${year}-`, 'cases', 4)
+  const id = opts.id ?? nextId(type === 'WHISTLEBLOWER' ? `WB-${year}-` : `FC-${year}-`, 'cases', 4) // fixed IDs are used by the test-scenario pack
   const cust = body.cif ? get('SELECT * FROM customers WHERE cif = ?', body.cif) : undefined
   const d = emptyCaseData()
   d.details.description = body.description ?? ''

@@ -16,7 +16,7 @@ export const alertCols: Col<any>[] = [
   { key: 'priority', label: 'Priority', render: (a) => <PriorityBadge p={a.priority} /> },
   { key: 'created_at', label: 'Date of alert', render: (a) => fmtDateTime(a.created_at) },
   { key: 'assigned_name', label: 'Assigned to', render: (a) => a.assigned_name ? <div>{a.assigned_name}<div className="small muted">{fmtDateTime(a.assigned_at)}</div></div> : <span className="muted">Unassigned</span> },
-  { key: 'status', label: 'Status', render: (a) => <div className="stack" style={{ gap: 3 }}><StatusBadge s={a.status} />{a.case_id && <span className="small mono">{a.case_id}</span>}</div> },
+  { key: 'status', label: 'Status', render: (a) => <div className="stack" style={{ gap: 3 }}><StatusBadge s={a.status} />{a.archived && <Badge tone="grey">Archived</Badge>}{a.case_id &&<span className="small mono">{a.case_id}</span>}</div> },
   { key: 'tat_ms', label: 'TAT', render: (a) => <span style={{ color: a.overdue ? 'var(--red)' : undefined, fontWeight: a.overdue ? 700 : 400 }}>{fmtDur(a.tat_ms)}{a.overdue && <div className="small">Overdue +{fmtDur(a.overdue_ms)}</div>}</span> },
 ]
 

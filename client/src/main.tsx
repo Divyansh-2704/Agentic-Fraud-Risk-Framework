@@ -18,6 +18,7 @@ import { PostClosure } from './pages/PostClosure'
 import { PreventionDesk } from './pages/PreventionDesk'
 import { ProcessMap } from './pages/ProcessMap'
 import { SearchPage } from './pages/Search'
+import { Scenarios } from './pages/Scenarios'
 import '@fontsource-variable/outfit'
 import './styles/theme.css'
 
@@ -45,6 +46,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="/outbox" element={<Outbox />} />
               <Route path="/config" element={<ConfigPage />} />
               <Route path="/search" element={<SearchPage />} />
+              <Route path="/scenarios" element={<Scenarios />} />
               <Route path="*" element={<div className="empty">Page not found.</div>} />
             </Routes>
           </Layout>

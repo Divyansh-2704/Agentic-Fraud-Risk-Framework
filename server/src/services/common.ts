@@ -33,6 +33,7 @@ export function canSeeAlert(u: User, a: Row) {
 export function canSeeCase(u: User, c: Row) {
   if (hasRole(u, 'SUPER_USER')) return true
   if (!u.entities.includes(c.entity)) return false
+  if (c.created_by === u.id) return true // the creator can always follow their own case (read-only once it moves on)
   if (c.type === 'WHISTLEBLOWER') return isFpi(u) || hasRole(u, 'HR', 'GOVERNANCE')
   return isFpi(u) || hasRole(u, 'MANAGER', 'FO_MAKER', 'FO_CHECKER', 'FO_ANALYST')
 }

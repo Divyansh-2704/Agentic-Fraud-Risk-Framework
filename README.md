@@ -35,8 +35,28 @@ cd fraud-framework
 npm install
 npm run seed     # reset the database with synthetic bank-style data
 npm run dev      # API on http://localhost:4000, UI on http://localhost:5173
-npm test         # 23 workflow unit tests + 9 end-to-end API tests
+npm test         # 23 workflow unit tests + 9 end-to-end API tests + 68 scenario-pack tests
+npm run test-guide   # rebuild docs/Agentic-Fraud-Test-Scenarios.xlsx from the scenario catalogue
 ```
+
+## Test scenarios (UAT pack)
+
+55 scripted scenarios cover every alert and case situation in the flow workbook (Sheets 2 to 7) and the BRD:
+
+| Group | Scenarios |
+|---|---|
+| A · Detection alerts | End-to-end alert to closed case, each False Positive / Confirmed Fraud sub-classification, EDD round-trip, CRM failure, re-schedule limit, FP&I referral, send back / re-assign, multi-alert decision, data-quality exception, HR and Governance queues, SLA overdue, EDD over 8 days |
+| B · Prevention alerts | Grey approve / reject, Red, Green, SLA escalation |
+| C · Maker-Checker and routing | Manual case, golden rule and return loop, reject, every routing rule R1 to R4 (including AFS below, equal to and above X), changing X, draft delete, CRM SR and FP&I-initiated cases |
+| D · FP&I | Full investigation, financial validations, investigator return, AFS approval, reviewer return, approver approve / return (AFS return to Maker), reviewer-cannot-approve |
+| E · Joint and whistleblower | Joint investigation, joint review, whistleblower to HR and to Governance |
+| F · Post-closure | Tasks, recovery maker-checker, re-open, disable, archive |
+| X · Cross-cutting | Chinese wall, search, MI |
+
+- Each scenario has its own synthetic customer (CIF `88xxxxx`) and a fixed-ID record (`ALT-TC-A01`, `FC-TC-C04`, `WB-TC-E03`…) already placed at the start of the test.
+- **In the app:** Overview > **Test scenarios** lists them with a Ready / Already run indicator. **Start** switches to the right user and opens the record. System Administrator can **Reset demo data**.
+- **In Excel:** `docs/Agentic-Fraud-Test-Scenarios.xlsx` has the scenario index, step-by-step instructions with Pass / Fail columns, a status flow chart per scenario, a coverage matrix, users and customers.
+- The catalogue lives in `shared/src/scenarios.ts`. The seed (`server/src/scenarios.ts`), the page, the tests (`server/test/scenarios.test.ts`) and the Excel generator (`scripts/build-test-guide.ts`) all read it.
 
 To check types or build for production: `npm run typecheck` / `npm run build`.
 

@@ -232,7 +232,7 @@ export function alertAct(u: User, id: string, body: any) {
       if (row.cif !== a.cif) throw bad('Multi-alert decision is only allowed for the same customer (FR-ALT-011).')
       // Bulk alerts are claimed implicitly by the analyst taking the decision
       const s = snap(row)
-      if (aid !== id && !s.assignedTo) s.assignedTo = u.id
+      if (aid !== id && !s.assignedTo) { s.assignedTo = u.id; if (s.status === 'Yet to start') s.status = 'WIP' }
       const r = alertTransition(s, { id: u.id, roles: u.roles, dept: u.dept }, action, cfg, new Date(nowIso()))
       if (!r.ok) throw bad(aid === id ? r.error : `${aid}: ${r.error}`)
       const patch: Row = { ...r.patch, status: r.to, assigned_to: r.assignedTo }
