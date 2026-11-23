@@ -33,7 +33,7 @@ export function CalendarPage() {
             return (
               <div key={k} className={`cal-d ${d.getMonth() !== month.getMonth() ? 'other' : ''} ${k === today ? 'today' : ''}`}>
                 <div>{d.getDate()}</div>
-                {ev.slice(0, 3).map((e) => <Link key={e.ref} to={e.caseId ? `/cases/${e.caseId}` : `/alerts/${e.ref}`} className={`cal-ev ${e.kind === 'Post-completion' ? 'pt' : ''} ${e.status === 'Completed' ? 'done' : ''}`} title={`${e.kind}: ${e.title}`}>{e.title}</Link>)}
+                {ev.slice(0, 3).map((e) => <Link key={e.ref} to={e.caseId ? `/cases/${e.caseId}` : `/alerts/${e.ref}`} className={`cal-ev ${e.kind === 'Post-completion' ? 'pt' : ''} ${e.kind === 'Re-scheduled alert' ? 'rs' : ''} ${e.status === 'Completed' ? 'done' : ''}`} title={`${e.title}${e.detail ? ` (${e.detail})` : ''}`}>{e.title}</Link>)}
                 {ev.length > 3 && <div className="small muted">+{ev.length - 3} more</div>}
               </div>
             )
@@ -41,7 +41,7 @@ export function CalendarPage() {
         </div>
         <Card title="Upcoming">
           <div className="stack" style={{ gap: 8 }}>
-            {upcoming.map((e) => <div key={e.ref} className="small"><div className="row between"><b>{e.date}</b><StatusBadge s={e.status} /></div><div>{e.title}</div><div className="muted">{e.kind} · {e.caseId ? <Link to={`/cases/${e.caseId}`}>{e.caseId}</Link> : e.ref} {e.owner ? `· ${e.owner}` : ''}</div></div>)}
+            {upcoming.map((e) => <div key={e.ref} className="small"><div className="row between"><b>{e.date}</b><StatusBadge s={e.status} /></div><div>{e.title}</div>{e.detail && <div className="muted">{e.detail}</div>}<div className="muted">{e.kind} · {e.caseId ? <Link to={`/cases/${e.caseId}`}>{e.caseId}</Link> : e.ref} {e.owner ? `· ${e.owner}` : ''}</div></div>)}
             {!upcoming.length && <div className="muted">Nothing upcoming.</div>}
           </div>
         </Card>

@@ -216,17 +216,17 @@ function ActionPanel({ d, meta }: { d: any; meta: any }) {
           </>
         ) : (
           <>
-            {a.status === 'Referred to FP&I' && <div className="alert-box warn">Waiting for FP&amp;I feedback.</div>}
+            {a.status === 'Referred to FP&I' && <div className="alert-box warn">Waiting for FP&amp;I feedback. Raising an EDD SR and the final decision unlock once FP&amp;I responds.</div>}
             {a.status === 'EDD raised' && <div className="alert-box info">EDD SR <b className="mono">{a.edd_sr}</b> open in CRM since {fmtDate(a.edd_raised_at)}.<button className="btn btn-sm" style={{ marginLeft: 'auto' }} onClick={() => run({ kind: 'edd_response' }, 'EDD outcome fetched from CRM')}>Fetch CRM outcome (simulated)</button></div>}
             {!isPrev && (
               <div>
                 <div className="kpi-label" style={{ marginBottom: 6 }}>In-progress actions</div>
                 <div className="row">
-                  <button className="btn btn-sm" disabled={!['WIP', 'EDD responded'].includes(a.status)} onClick={() => run({ kind: 'edd' }, 'EDD SR raised in CRM')}>Raise EDD SR</button>
+                  {a.status !== 'Referred to FP&I' && <button className="btn btn-sm" disabled={!['WIP', 'EDD responded'].includes(a.status)} onClick={() => run({ kind: 'edd' }, 'EDD SR raised in CRM')}>Raise EDD SR</button>}
                   <button className="btn btn-sm" onClick={() => run({ kind: 'sendback' }, 'Sent back to queue')}>Send back to queue</button>
                   <button className="btn btn-sm" disabled={a.reschedule_count >= 3} onClick={() => run({ kind: 'reschedule' }, 'Re-scheduled +24h, TAT paused')}>Re-schedule +24h ({a.reschedule_count}/3)</button>
                   <button className="btn btn-sm" onClick={() => setModal('reassign')}>Re-assign</button>
-                  <button className="btn btn-sm" disabled={a.status === 'Referred to FP&I'} onClick={() => setModal('refer')}>Refer to FP&amp;I</button>
+                  {a.status !== 'Referred to FP&I' && <button className="btn btn-sm" onClick={() => setModal('refer')}>Refer to FP&amp;I</button>}
                 </div>
               </div>
             )}

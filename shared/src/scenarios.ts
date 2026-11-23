@@ -178,9 +178,9 @@ export const SCENARIOS: Scenario[] = [
     setup: 'Customer Lucas Moreau (CIF NEW0002) is not yet in Siebel CRM.',
     flow: 'Yet to start > WIP > (EDD refused) > Re-scheduled > Yet to start',
     steps: [
-      S('u-aisha', 'Alert workspace', 'Open ALT-TC-A04, "Assign to me", click "Raise EDD SR".', 'Red error toast: "CRM interface: CIF not found in Siebel CRM. EDD SR could not be raised; consider re-scheduling (FR-ALT-025)". Status stays WIP.'),
+      S('u-aisha', 'Alert workspace', 'Open ALT-TC-A04, "Assign to me", click "Raise EDD SR".', 'Red error toast: "CRM interface: CIF not found in Siebel CRM. EDD SR could not be raised; consider re-scheduling (FR-ALT-025)". Status stays WIP; activity log records "EDD SR refused by CRM" (no browser console error).'),
       S('u-aisha', 'Alert workspace', 'Click "Re-schedule +24h (0/3)".', 'Status Re-scheduled; alert unassigned; "Back in the queue on <tomorrow>. TAT is paused."; re-schedules 1 / 3.'),
-      S('u-aisha', 'Calendar', 'Open Calendar and find tomorrow.', 'Entry "Re-scheduled alert: Lucas Moreau".'),
+      S('u-aisha', 'Calendar', 'Open Calendar and find tomorrow.', 'Entry "Re-scheduled alert: Lucas Moreau" (the alert type shows in the Upcoming list and the tooltip); all seven day columns are equal width.'),
       S('u-aisha', 'Alert workspace', 'Click "Move back to current queue".', 'Status Yet to start; TAT resumes and excludes the paused time.'),
     ],
     expected: 'CRM failure is handled gracefully and re-scheduling pauses TAT.',
@@ -205,7 +205,7 @@ export const SCENARIOS: Scenario[] = [
     setup: 'Mule-pattern alert DSP-R310: AED 35,000 inbound moved out to Crypto Exchange XT within 10 minutes.',
     flow: 'Yet to start > WIP > Referred to FP&I > WIP > Closed (Confirmed Fraud)',
     steps: [
-      S('u-layla', 'Alert workspace', 'Open ALT-TC-A06, "Assign to me", click "Refer to FP&I", type a question, "Refer".', 'Status Referred to FP&I; "Waiting for FP&I feedback"; Submit decision disabled; email "Alert referral for feedback" to FP&I.'),
+      S('u-layla', 'Alert workspace', 'Open ALT-TC-A06, "Assign to me", click "Refer to FP&I", type a question, "Refer".', 'Status Referred to FP&I; "Waiting for FP&I feedback"; Raise EDD SR and Refer to FP&I are hidden and Submit decision is disabled until FP&I responds; email "Alert referral for feedback" to FP&I.'),
       S('u-rashid', 'Alert workspace (FP&I has view access)', 'Open ALT-TC-A06 (global search), click "Respond to referral", Send back to = "The analyst who referred it", enter response, "Send response".', 'Status WIP, still assigned to Layla; email "FP&I responded" to Layla.'),
       S('u-layla', 'Alert workspace', 'Read "FP&I response" in the Alert record. Decide Confirmed Fraud / Scam-malicious code (personal PC) with rationale. Do NOT create a case.', 'Status Closed; "Create a case for investigation" button remains available for later (creating a case is optional).'),
     ],
@@ -220,7 +220,7 @@ export const SCENARIOS: Scenario[] = [
     steps: [
       S('u-aisha', 'Alert workspace', 'Open ALT-TC-A07, "Assign to me", then "Send back to queue".', 'Status Yet to start, unassigned.'),
       S('u-omar', 'Alert queue', 'Tick the row for ALT-TC-A07 and click "Assign 1 to me" (bulk assignment).', 'Assigned to Omar, status WIP.'),
-      S('u-omar', 'Alert workspace', 'Click "Re-assign", choose Layla Nasser, "Re-assign".', 'Assigned to Layla; Omar sees it read-only.'),
+      S('u-omar', 'Alert workspace', 'Click "Re-assign", choose Layla Nasser, "Re-assign".', 'Assigned to Layla; Omar sees it read-only; activity log reads "Re-assigned to Layla Nasser".'),
       S('u-hassan', 'Alert workspace (manager)', 'Use "Assign to analyst…" = Aisha Rahman, click "Assign".', 'Assigned to Aisha; event "Assigned to Aisha Rahman".'),
       S('u-aisha', 'Alert workspace', 'Decide False Positive / Customer declined: "Customer declined fraud claim, purchases confirmed".', 'Closed. Activity log shows every hand-over in order.'),
     ],
@@ -284,7 +284,7 @@ export const SCENARIOS: Scenario[] = [
     setup: 'Medium-priority alert (96h SLA) created 5 days ago, assigned to Omar, still WIP.',
     flow: 'WIP (overdue) > Closed',
     steps: [
-      S('u-omar', 'Alert queue', 'Find ALT-TC-A12 in the queue.', 'Row highlighted in red with "Overdue +~1d" in the TAT column; red badge "n overdue (SLA breached)" above the table.'),
+      S('u-omar', 'Alert queue', 'Find ALT-TC-A12 in the queue.', 'Row shaded light red with a red left stripe and "Overdue +~1d" in the TAT column; red badge "n overdue (SLA breached)" above the table.'),
       S('u-hassan', 'Reports & dashboards', 'Click "Send daily SLA breach email".', 'Toast; Email outbox has "Daily SLA breach summary" to Omar cc hassan.tariq@auronova.example listing ALT-TC-A12.'),
       S('u-omar', 'Alert workspace', 'Decide False Positive / Inconclusive.', 'Closed; no longer overdue.'),
     ],
@@ -371,9 +371,9 @@ export const SCENARIOS: Scenario[] = [
     flow: 'Draft > Submitted to FO Checker > Approved for Investigation',
     steps: [
       S('u-aisha', 'Fraud cases', 'Click "+ New case", CIF 8800301, description, "Create case".', 'Draft case opens, origin "Manual - Fraud Ops"; customer details auto-filled from core banking.'),
-      S('u-aisha', 'Case: Workflow', 'Click "Submit to Fraud Ops Checker" straight away (with a comment).', 'Error toast listing missing mandatory fields (Complexity, Risk Category L1/L2, Risk Title, Reporting channel, Date reported, Recommendation category).'),
+      S('u-aisha', 'Case: Workflow', 'Click "Submit to Fraud Ops Checker" straight away (with a comment).', 'Error toast listing missing mandatory fields (Complexity, Risk Category L1/L2, Risk Title, Reporting channel, Recommendation category). Date reported is already today.'),
       S('u-aisha', 'Case: Transaction details', 'In "Find and add transactions" click "Search", tick TC-8800301-F1, F2 and F3, "Add 3 selected".', 'Rows show Original USD 5,000 / EUR 2,000 / AED 3,000 with FX 3.6725 / 3.98 / 1 and AED totals; summary by type; selected rows disappear from search.'),
-      S('u-aisha', 'Case sections', 'Complexity L2; Source details: Reporting channel Customer call, Date reported today; Risk: Investment Scam / Fake Investment / Forex platform; Recommendation Category People; Mandatory actions tick Customer contacted and "Business notified". "Save draft".', 'Toast "Saved"; email "business notification" in outbox; Show Diff lists the changed fields.'),
+      S('u-aisha', 'Case sections', 'Complexity L2; Source details: Reporting channel Customer call (Date reported is pre-filled with today); Risk: Investment Scam / Fake Investment / Forex platform; Recommendation Category People; Mandatory actions tick Customer contacted and "Business notified". "Save draft".', 'Toast "Saved"; email "business notification" in outbox; Show Diff lists the changed fields.'),
       S('u-aisha', 'Case: Workflow', 'Submit to Fraud Ops Checker.', 'Status Submitted to FO Checker.'),
       S('u-layla', 'Fraud cases > My pool', 'Pick up and Approve.', 'Approved for Investigation (rule R4).'),
     ],
@@ -407,8 +407,8 @@ export const SCENARIOS: Scenario[] = [
   },
   ...(
     [
-      ['TC-C04', 'FC-TC-C04', '8800304', 'Group Compliance / Regulatory / AML / Suspicious structuring', 'R1: close + email Group Compliance', 'Approved and Closed (FO); email "closed by routing rule R1" to group.compliance@ and cyber.security@'],
-      ['TC-C05', 'FC-TC-C05', '8800305', 'Cyber Security / Malware / Intrusion / Credential theft', 'R1: close + email Cyber Security', 'Approved and Closed (FO); routing email to the Cyber Security team'],
+      ['TC-C04', 'FC-TC-C04', '8800304', 'Group Compliance / Regulatory / AML / Suspicious structuring', 'R1: close + email Group Compliance', 'Approved and Closed (FO); email "closed by routing rule R1" to group.compliance@ only (not Cyber Security)'],
+      ['TC-C05', 'FC-TC-C05', '8800305', 'Cyber Security / Malware / Intrusion / Credential theft', 'R1: close + email Cyber Security', 'Approved and Closed (FO); routing email to cyber.security@ only (not Group Compliance)'],
       ['TC-C06', 'FC-TC-C06', '8800306', 'External Fraud / Phishing / Vishing / Vishing - OTP disclosure', 'R2: close at Fraud Ops', 'Approved and Closed (FO); no FP&I involvement'],
       ['TC-C07', 'FC-TC-C07', '8800307', 'Card Fraud / Card Not Present / E-commerce compromise', 'R2: close at Fraud Ops', 'Approved and Closed (FO)'],
       ['TC-C08', 'FC-TC-C08', '8800308', 'Fraudulent Enquiries / Customer Enquiry / Unrecognised transaction enquiry', 'R2: close at Fraud Ops', 'Approved and Closed (FO)'],
@@ -438,7 +438,7 @@ export const SCENARIOS: Scenario[] = [
     flow: 'Submitted to FO Checker > Approved and Closed (FO) (after X raised to 30,000)',
     steps: [
       S('u-layla', 'Case FC-TC-C13', 'Open and read "If approved:".', '"above X = AED 10,000, so send to the FP&I Investigator pool".'),
-      S('u-mariam', 'Configuration', 'Set "Advance Fee Scam threshold X (AED)" to 30000 and click its "Save".', 'Toast saved.'),
+      S('u-mariam', 'Configuration', 'Set "Advance Fee Scam threshold X (AED)" to 30000 and click its "Save".', 'Toast "Advance Fee Scam threshold X saved".'),
       S('u-layla', 'Case FC-TC-C13', 'Refresh: preview now says "at or below X = AED 30,000, so close the case". Pick up and approve.', 'Approved and Closed (FO).'),
       S('u-mariam', 'Configuration', 'Set X back to 10000 and save.', 'Default restored (other scenarios rely on it).'),
     ],
@@ -451,8 +451,8 @@ export const SCENARIOS: Scenario[] = [
     setup: 'Draft created by Aisha by mistake; never submitted.',
     flow: 'Draft > deleted',
     steps: [
-      S('u-omar', 'Case FC-TC-C14', 'Open the case.', 'Read-only; no "Delete draft" (only the creator or a super user may delete).'),
-      S('u-aisha', 'Case FC-TC-C14', 'Click "Delete draft" and confirm.', 'Case removed; back to Fraud cases. Compare with FC-TC-C02 (returned) where no delete button exists.'),
+      S('u-omar', 'Case FC-TC-C14', 'Open the case.', 'Read-only; no "Delete draft" (only the Fraud Ops Maker who created it, while it is still with them, or a super user may delete).'),
+      S('u-aisha', 'Case FC-TC-C14', 'Click "Delete draft"; the app\'s confirmation pop-up opens. Click "Delete draft" in the pop-up.', 'Back on Fraud cases with toast "Draft deleted"; the case is gone. Compare with FC-TC-C02 (submitted) where no delete button exists.'),
     ],
     expected: 'Only never-returned drafts can be deleted, only by the creator.',
   },
@@ -476,7 +476,7 @@ export const SCENARIOS: Scenario[] = [
     flow: 'Draft (Maker pool) > Draft (Aisha)',
     steps: [
       S('u-rashid', 'Fraud cases', 'Optional: click "+ New case" yourself to see the info box "As FP&I, this sends the case to the Fraud Ops Maker pool..."', 'A second case is created the same way.'),
-      S('u-aisha', 'Email outbox', 'Find "FP&I request: please create and action case FC-TC-C16".', 'Email present.'),
+      S('u-aisha', 'Email outbox', 'Find "FP&I request: please create and action case FC-TC-C16".', 'Email present (sent to the Fraud Ops team mailbox fraud.ops@auronova.example, which every Fraud Ops user sees).'),
       S('u-aisha', 'Fraud cases > My pool', 'Pick up FC-TC-C16 (origin "Manual - FP&I").', 'Assigned to Aisha as Maker.'),
     ],
     expected: 'FP&I-initiated cases follow the normal Maker-Checker path.',
@@ -534,7 +534,7 @@ export const SCENARIOS: Scenario[] = [
     flow: 'Investigation in progress > Final report generated and closed',
     steps: [
       S('u-rashid', 'Case FC-TC-D04: Workflow', 'Click "Approve Advance Fee Scam (final report + close)" with a comment.', 'Closed and frozen; final report and email generated without Reviewer/Approver.'),
-      S('u-rashid', 'Compare', 'Open FC-TC-D02 (Investment Scam).', 'The "Approve Advance Fee Scam" button is not offered for non-AFS cases.'),
+      S('u-rashid', 'Compare', 'Open FC-TC-E01 (Mule Account, still in investigation with Rashid; just look, do not act).', 'Workflow shows Submit to Reviewer and Return to Maker, but no "Approve Advance Fee Scam" button (AFS only).'),
     ],
     expected: 'AFS shortcut is available only for the AFS category.',
   },

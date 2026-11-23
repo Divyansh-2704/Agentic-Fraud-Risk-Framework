@@ -7,11 +7,16 @@ export interface RoutingRule {
   /** Matches when the case's Risk Category L1 or L2 is in this list. Empty = match all (catch-all). */
   categories: string[]
   action: RoutingAction
+  /** Fallback mailbox(es) when no category-specific mailbox matches. */
   emailTo?: string
+  /** Category -> mailbox, so each team only receives its own cases (e.g. Cyber cases go to Cyber Security only). */
+  emailByCategory?: Record<string, string>
 }
 
 export const DEFAULT_ROUTING_RULES: RoutingRule[] = [
-  { id: 'R1', label: 'Group Compliance / Cyber security', categories: ['Group Compliance', 'Cyber Security'], action: 'close_email', emailTo: 'group.compliance@auronova.example; cyber.security@auronova.example' },
+  { id: 'R1', label: 'Group Compliance / Cyber security', categories: ['Group Compliance', 'Cyber Security'], action: 'close_email',
+    emailByCategory: { 'Group Compliance': 'group.compliance@auronova.example', 'Cyber Security': 'cyber.security@auronova.example' },
+    emailTo: 'group.compliance@auronova.example; cyber.security@auronova.example' },
   { id: 'R2', label: 'External Fraud / Card Fraud / Fraudulent Enquiries', categories: ['External Fraud', 'Card Fraud', 'Fraudulent Enquiries'], action: 'close' },
   { id: 'R3', label: 'Advance Fee Scam (amount vs X)', categories: ['Advance Fee Scam'], action: 'threshold' },
   { id: 'R4', label: 'All other cases', categories: [], action: 'investigate' },
@@ -30,8 +35,11 @@ export function evaluateRouting(input: RoutingInput, rules: RoutingRule[], afsTh
   const rule = rules.find((r) => r.categories.length === 0 || r.categories.some((c) => cats.includes(c)))
   if (!rule) throw new Error('Routing table has no catch-all rule')
   switch (rule.action) {
-    case 'close_email':
-      return { rule, outcome: 'CLOSE', emailTo: rule.emailTo, explanation: `${rule.label}: close the case and email ${rule.emailTo ?? 'the owning team'}.` }
+    case 'close_email': {
+      const byCat = [...new Set(cats.map((c) => rule.emailByCategory?.[c]).filter(Boolean) as string[])]
+      const to = byCat.length ? byCat.join('; ') : rule.emailTo
+      return { rule, outcome: 'CLOSE', emailTo: to, explanation: `${rule.label}: close the case and email ${to ?? 'the owning team'}.` }
+    }
     case 'close':
       return { rule, outcome: 'CLOSE', explanation: `${rule.label}: close the case at Fraud Ops.` }
     case 'threshold': {

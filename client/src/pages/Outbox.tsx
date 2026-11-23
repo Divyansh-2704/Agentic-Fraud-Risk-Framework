@@ -3,14 +3,14 @@ import { Link } from 'react-router-dom'
 import { useApi } from '../api'
 import { Card, DataTable, fmtDateTime, Loading, Modal } from '../components/ui'
 
-/** Simulated Outlook: every system email (notifications, escalations, final reports). Managers / super users see all; others see their own. */
+/** Simulated Outlook: every system email (notifications, escalations, final reports). Managers / super users see all; others see mail to them and to their team mailbox. */
 export function Outbox() {
   const q = useApi<any[]>('/outbox')
   const [sel, setSel] = useState<any>(null)
   if (q.isLoading) return <Loading />
   return (
     <>
-      <div className="page-head"><div><div className="crumbs">Admin</div><h1>Email outbox</h1><p>Integration stub for Outlook. Every email the system sends is recorded here and attached to its alert or case.</p></div></div>
+      <div className="page-head"><div><div className="crumbs">Admin</div><h1>Email outbox</h1><p>Integration stub for Outlook. Every email the system sends is recorded here and attached to its alert or case. You see the emails sent to you and to your team mailbox (fraud.ops@, fpi.team@ or hr.governance@); managers and the System Administrator see all.</p></div></div>
       <Card pad={false}>
         <DataTable rows={q.data ?? []} onRow={setSel} exportName="outbox" cols={[
           { key: 'ts', label: 'Sent', render: (m) => fmtDateTime(m.ts) }, { key: 'subject', label: 'Subject', render: (m) => <b>{m.subject}</b> },

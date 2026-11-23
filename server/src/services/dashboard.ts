@@ -1,7 +1,7 @@
 // Reports and dashboards (FR-CASE-0138..0149, FR-ALT-055) + live counts for the Process Map.
 import type { User } from '../../../shared/src/index.js'
 import { isClosedCase } from '../../../shared/src/index.js'
-import { all, getConfig, json } from '../db.js'
+import { all, getConfig, json, type Row } from '../db.js'
 import { computeImpact } from '../workflow/financial.js'
 import { alertDto, sweepAlerts } from './alerts.js'
 import { canSeeAlert, canSeeCase, listUsers, userName } from './common.js'
@@ -26,20 +26,24 @@ export function businessMs(startIso: string, endIso: string, holidays: string[])
 
 export interface DashFilters { from?: string; to?: string; entity?: string; user?: string }
 
-export function dashboard(u: User, f: DashFilters) {
-  sweepAlerts()
+export async function dashboard(u: User, f: DashFilters) {
+  await sweepAlerts()
   const inRange = (iso: string) => (!f.from || iso >= f.from) && (!f.to || iso <= `${f.to}T23:59:59`)
-  const alerts = all('SELECT * FROM alerts').filter((a) => canSeeAlert(u, a) && inRange(a.created_at) && (!f.entity || a.entity === f.entity) && (!f.user || a.assigned_to === f.user)).map(alertDto)
-  const cases = all('SELECT * FROM cases').filter((c) => canSeeCase(u, c) && inRange(c.created_at) && (!f.entity || c.entity === f.entity) && (!f.user || c.assigned_to === f.user))
+  const alerts = (await all('SELECT * FROM alerts')).filter((a) => canSeeAlert(u, a) && inRange(a.created_at) && (!f.entity || a.entity === f.entity) && (!f.user || a.assigned_to === f.user)).map(alertDto)
+  const cases = (await all('SELECT * FROM cases')).filter((c) => canSeeCase(u, c) && inRange(c.created_at) && (!f.entity || c.entity === f.entity) && (!f.user || c.assigned_to === f.user))
   const holidays = getConfig<string[]>('holidays', [])
   const group = <T,>(rows: T[], key: (r: T) => string) => Object.entries(rows.reduce((m: Record<string, number>, r) => { const k = key(r) ?? '-'; m[k] = (m[k] ?? 0) + 1; return m }, {})).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
 
   // TAT per stage and per actor from the audit trail (FR-CASE-0141)
+  const caseIds = new Set(cases.map((c) => c.id))
+  const events = new Map<string, Row[]>()
+  for (const e of await all('SELECT * FROM audit_trail WHERE to_status IS NOT NULL AND from_status IS NOT NULL AND from_status <> to_status ORDER BY ts, id')) {
+    if (caseIds.has(e.case_id)) events.set(e.case_id, [...(events.get(e.case_id) ?? []), e])
+  }
   const stageDur: Record<string, number[]> = {}, actorDur: Record<string, number[]> = {}
   for (const c of cases) {
-    const ev = all("SELECT * FROM audit_trail WHERE case_id = ? AND to_status IS NOT NULL AND from_status IS NOT NULL AND from_status <> to_status ORDER BY ts, id", c.id)
     let prevTs = c.created_at
-    for (const e of ev) {
+    for (const e of events.get(c.id) ?? []) {
       const ms = businessMs(prevTs, e.ts, holidays)
       ;(stageDur[e.from_status] ??= []).push(ms)
       const who = userName(e.actor) ?? e.actor
@@ -50,12 +54,17 @@ export function dashboard(u: User, f: DashFilters) {
   const avgH = (xs: number[]) => Math.round((xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length) / 3600_000) * 10) / 10
   const closedAlerts = alerts.filter((a) => a.status === 'Closed')
 
-  // Rule precision: feedback to DSP (scope 1.3; agent #11 will narrate this later)
-  const byRule: Record<string, { rule: string; name: string; closed: number; fraud: number; fp: number }> = {}
+  // Rule precision: feedback to DSP (scope 1.3; agent #11 will narrate this later).
+  // "Last 7 days" and "last decision" show how recent decisions moved each rule's numbers.
+  const weekAgo = new Date(Date.now() - 7 * 86400_000).toISOString()
+  const byRule: Record<string, { rule: string; name: string; closed: number; fraud: number; fp: number; closed7d: number; fp7d: number; lastDecisionAt: string | null }> = {}
   for (const a of closedAlerts) {
-    const r = (byRule[a.rule_id] ??= { rule: a.rule_id, name: a.rule_name, closed: 0, fraud: 0, fp: 0 })
+    const r = (byRule[a.rule_id] ??= { rule: a.rule_id, name: a.rule_name, closed: 0, fraud: 0, fp: 0, closed7d: 0, fp7d: 0, lastDecisionAt: null })
+    const isFraud = a.decision === 'Confirmed Fraud' || a.decision === 'Reject'
     r.closed++
-    if (a.decision === 'Confirmed Fraud' || a.decision === 'Reject') r.fraud++; else r.fp++
+    if (isFraud) r.fraud++; else r.fp++
+    if (a.closed_at && a.closed_at >= weekAgo) { r.closed7d++; if (!isFraud) r.fp7d++ }
+    if (a.closed_at && (!r.lastDecisionAt || a.closed_at > r.lastDecisionAt)) r.lastDecisionAt = a.closed_at
   }
   const days = 14
   const trend = Array.from({ length: days }, (_, i) => {
@@ -87,7 +96,7 @@ export function dashboard(u: User, f: DashFilters) {
     casesByRisk: group(cases, (c) => c.risk_l1 ?? 'Unclassified'),
     tatByStage: Object.entries(stageDur).map(([stage, xs]) => ({ stage, avgHours: avgH(xs), count: xs.length })).sort((a, b) => b.avgHours - a.avgHours),
     tatByActor: Object.entries(actorDur).map(([actor, xs]) => ({ actor, avgHours: avgH(xs), actions: xs.length })).sort((a, b) => b.actions - a.actions),
-    rulePrecision: Object.values(byRule).map((r) => ({ ...r, precision: Math.round((r.fraud / r.closed) * 100) })).sort((a, b) => a.precision - b.precision),
+    rulePrecision: Object.values(byRule).map((r) => ({ ...r, precision: Math.round((r.fraud / r.closed) * 100) })).sort((a, b) => a.precision - b.precision || a.rule.localeCompare(b.rule)),
     trend,
     financial: fiTotals,
     workload: listUsers().map((x) => ({ user: x.name, alerts: alerts.filter((a) => a.assigned_to === x.id && a.status !== 'Closed').length, cases: cases.filter((c) => c.assigned_to === x.id && !isClosedCase(c.status)).length })).filter((w) => w.alerts + w.cases > 0),
@@ -103,10 +112,10 @@ export function dashboard(u: User, f: DashFilters) {
 }
 
 /** Live counts for each station of the Big Picture flowchart (Sheet 1). */
-export function processCounts(u: User) {
-  sweepAlerts()
-  const alerts = all('SELECT * FROM alerts').filter((a) => canSeeAlert(u, a))
-  const cases = all('SELECT * FROM cases').filter((c) => canSeeCase(u, c) && c.type === 'STANDARD')
+export async function processCounts(u: User) {
+  await sweepAlerts()
+  const alerts = (await all('SELECT * FROM alerts')).filter((a) => canSeeAlert(u, a))
+  const cases = (await all('SELECT * FROM cases')).filter((c) => canSeeCase(u, c) && c.type === 'STANDARD')
   const n = (fn: (r: any) => boolean, rows: any[]) => rows.filter(fn).length
   return {
     ingested: alerts.length,
@@ -122,7 +131,7 @@ export function processCounts(u: User) {
     approver: n((c) => c.owner === 'FPI_APPROVER', cases),
     closedByRule: n((c) => c.status === 'Approved and Closed (FO)' || c.status === 'Reject', cases),
     closedFinal: n((c) => c.status === 'Final report generated and closed', cases),
-    postTasks: all("SELECT COUNT(*) n FROM post_tasks WHERE status <> 'Completed'")[0].n,
-    whistleblower: all("SELECT COUNT(*) n FROM cases WHERE type = 'WHISTLEBLOWER' AND status <> 'Closed'")[0].n,
+    postTasks: Number((await all("SELECT COUNT(*) AS n FROM post_tasks WHERE status <> 'Completed'"))[0].n),
+    whistleblower: Number((await all("SELECT COUNT(*) AS n FROM cases WHERE type = 'WHISTLEBLOWER' AND status <> 'Closed'"))[0].n),
   }
 }

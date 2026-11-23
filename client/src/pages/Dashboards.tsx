@@ -5,7 +5,7 @@ import { ENTITIES } from '../../../shared/src/index'
 import { api, useAct, useApi } from '../api'
 import { AiAssist } from '../components/AiAssist'
 import { hasRole, useMe } from '../components/Layout'
-import { Card, exportXlsx, Field, fmtAed, Kpi, Loading, Select, Tabs } from '../components/ui'
+import { Card, exportXlsx, Field, fmtAed, fmtDateTime, Kpi, Loading, Select, Tabs } from '../components/ui'
 
 // Auronova categorical palette (indigo, amber, lavender, bronze), validated with the dataviz validator
 // (light surface: all checks pass; contrast WARN relieved by value labels + table view). Fixed order, never cycled.
@@ -73,8 +73,9 @@ export function Dashboards() {
           </div>
           <div className="grid g2">
             <Card title="Rule precision: feedback to DSP" pad={false} actions={<button className="btn btn-sm" onClick={() => exportXlsx(d.rulePrecision, 'rule-precision')}>Export</button>}>
-              <table className="tbl"><thead><tr><th>Rule</th><th>Closed</th><th>Fraud</th><th>False +ve</th><th style={{ width: 160 }}>Precision</th></tr></thead>
-                <tbody>{d.rulePrecision.map((r: any) => <tr key={r.rule}><td><span className="mono small">{r.rule}</span><div className="small muted">{r.name}</div></td><td>{r.closed}</td><td>{r.fraud}</td><td>{r.fp}</td><td><Meter pct={r.precision} /></td></tr>)}</tbody></table>
+              <table className="tbl"><thead><tr><th>Rule</th><th>Closed</th><th>Fraud</th><th>False +ve</th><th title="Closed in the last 7 days (of which false positive)">Last 7 days</th><th>Last decision</th><th style={{ width: 140 }}>Precision</th></tr></thead>
+                <tbody>{d.rulePrecision.map((r: any) => <tr key={r.rule}><td><span className="mono small">{r.rule}</span><div className="small muted">{r.name}</div></td><td>{r.closed}</td><td>{r.fraud}</td><td>{r.fp}</td><td className="small">{r.closed7d ? <>{r.closed7d} closed<div className="muted">{r.fp7d} false +ve</div></> : <span className="muted">–</span>}</td><td className="small">{fmtDateTime(r.lastDecisionAt)}</td><td><Meter pct={r.precision} /></td></tr>)}</tbody></table>
+              <div className="small muted" style={{ padding: '8px 12px' }}>Use the date filter above to compare periods; "Last 7 days" shows how recent decisions moved each rule.</div>
             </Card>
             <Card title="TAT per actor (business hours)" pad={false} actions={<button className="btn btn-sm" onClick={() => exportXlsx(d.tatByActor, 'tat-by-actor')}>Export</button>}>
               <table className="tbl"><thead><tr><th>Actor</th><th>Actions</th><th>Avg hours per stage</th></tr></thead>

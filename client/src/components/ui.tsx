@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { cloneElement, createContext, isValidElement, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import * as XLSX from 'xlsx'
 
 // ---------- Toasts ----------
@@ -68,18 +68,22 @@ export function Kpi({ label, value, sub, onClick, selected, tone }: { label: str
 }
 
 export function Field({ label, req, children, hint }: { label: string; req?: boolean; children: ReactNode; hint?: ReactNode }) {
+  // Tie the label to its control (screen readers, and label-based selectors in the automated UI tests).
+  const autoId = useId()
+  const single = isValidElement(children) && ((typeof children.type === 'string' && ['input', 'select', 'textarea'].includes(children.type)) || children.type === Select)
+  const id = single ? ((children.props as any).id ?? autoId) : undefined
   return (
     <div className="field">
-      <label>{label}{req && <span className="req"> *</span>}</label>
-      {children}
+      <label htmlFor={id}>{label}{req && <span className="req"> *</span>}</label>
+      {single ? cloneElement(children as ReactElement<any>, { id }) : children}
       {hint && <span className="small muted">{hint}</span>}
     </div>
   )
 }
 
-export function Select({ value, onChange, options, placeholder = 'Select…', disabled }: { value: any; onChange: (v: string) => void; options: (string | { value: string; label: string })[]; placeholder?: string; disabled?: boolean }) {
+export function Select({ value, onChange, options, placeholder = 'Select…', disabled, id }: { value: any; onChange: (v: string) => void; options: (string | { value: string; label: string })[]; placeholder?: string; disabled?: boolean; id?: string }) {
   return (
-    <select value={value ?? ''} onChange={(e) => onChange(e.target.value)} disabled={disabled}>
+    <select id={id} value={value ?? ''} onChange={(e) => onChange(e.target.value)} disabled={disabled}>
       <option value="">{placeholder}</option>
       {options.map((o) => typeof o === 'string' ? <option key={o} value={o}>{o}</option> : <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
@@ -91,6 +95,14 @@ export function Tabs({ tabs, value, onChange }: { tabs: { id: string; label: Rea
 }
 
 export function Modal({ title, onClose, children, footer, wide }: { title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
+  // Escape closes the pop-up (as does a click on the dimmed background or the ✕ button).
+  const close = useRef(onClose)
+  close.current = onClose
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); close.current() } }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   return (
     <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className={`modal ${wide ? 'wide' : ''}`} role="dialog" aria-modal>
@@ -177,6 +189,16 @@ export function DataTable<T extends Record<string, any>>({ cols, rows, onRow, se
 }
 
 /** Small reusable comment + confirm modal for routing actions (FR-CASE-084: comment on every routing action). */
+/** The app's standard yes/no confirmation pop-up (used instead of the browser's native confirm box). */
+export function ConfirmModal({ title, message, confirm, tone = 'primary', onClose, onConfirm }: { title: string; message: ReactNode; confirm: string; tone?: 'primary' | 'accent' | 'danger'; onClose: () => void; onConfirm: () => void }) {
+  const [busy, setBusy] = useState(false)
+  return (
+    <Modal title={title} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className={`btn btn-${tone}`} disabled={busy} autoFocus onClick={async () => { setBusy(true); try { await onConfirm() } finally { setBusy(false) } }}>{confirm}</button></>}>
+      <div className="small">{message}</div>
+    </Modal>
+  )
+}
+
 export function CommentModal({ title, label = 'Comment', confirm, tone = 'primary', onClose, onConfirm, children }: { title: string; label?: string; confirm: string; tone?: 'primary' | 'accent' | 'danger'; onClose: () => void; onConfirm: (comment: string) => void; children?: ReactNode }) {
   const [c, setC] = useState('')
   return (

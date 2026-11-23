@@ -9,6 +9,7 @@ server/data/
 # Environment / secrets
 .env
 .env.*
+!.env.example
 
 # OS / editor
 .DS_Store
@@ -17,3 +18,8 @@ desktop.ini
 .vscode/
 .idea/
 *.log
+
+# Playwright UI test output
+test-results/
+playwright-report/
+test-runs/

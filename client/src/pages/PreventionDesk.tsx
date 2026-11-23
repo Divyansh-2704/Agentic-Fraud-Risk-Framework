@@ -53,7 +53,7 @@ export function PreventionDesk() {
           </div>
         </div>
         <Card title="Recent decisions" pad={false}>
-          <DataTable rows={hist.data?.rows ?? []} onRow={(a) => nav(`/alerts/${a.id}`)} cols={[
+          <DataTable rows={[...(hist.data?.rows ?? [])].sort((a: any, b: any) => String(b.closed_at ?? '').localeCompare(String(a.closed_at ?? '')))} onRow={(a) => nav(`/alerts/${a.id}`)} cols={[
             { key: 'id', label: 'Alert', render: (a) => <span className="mono">{a.id}</span> }, { key: 'customer_name', label: 'Customer' }, { key: 'prevention_colour', label: 'Code', render: (a) => <PreventionChip c={a.prevention_colour} /> },
             { key: 'decision', label: 'Decision', render: (a) => <Badge tone={a.decision === 'Reject' ? 'accent' : 'solid'}>{a.decision}</Badge> }, { key: 'sub_class', label: 'Reason' },
             { key: 'closed_at', label: 'Decided', render: (a) => fmtDateTime(a.closed_at) }, { key: 'tat_ms', label: 'Time to decide', render: (a) => fmtDur(a.tat_ms) }]} empty="No decided prevention alerts yet." />

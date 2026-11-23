@@ -24,7 +24,7 @@ export type AlertAction =
   | { kind: 'sendback' }
   | { kind: 'reschedule' }
   | { kind: 'requeue' } // manually move a rescheduled alert back (FR-ALT-032)
-  | { kind: 'reassign'; toUserId: string; toUserDept: string }
+  | { kind: 'reassign'; toUserId: string; toUserDept: string; toUserName?: string }
   | { kind: 'refer_fpi'; note: string }
   | { kind: 'fpi_response'; response: string; backTo: 'sender' | 'queue' }
   | { kind: 'decide'; decision: string; subClass: string; rationale: string }
@@ -95,7 +95,7 @@ export function alertTransition(a: AlertSnapshot, actor: Actor, action: AlertAct
     }
     case 'reassign':
       if (action.toUserDept !== actor.dept) return err('Can only re-assign within the same department.')
-      return { ok: true, to: a.status === 'Yet to start' ? 'WIP' : a.status, assignedTo: action.toUserId, patch: { assigned_at: nowIso }, event: `Re-assigned to ${action.toUserId}` }
+      return { ok: true, to: a.status === 'Yet to start' ? 'WIP' : a.status, assignedTo: action.toUserId, patch: { assigned_at: nowIso }, event: `Re-assigned to ${action.toUserName ?? action.toUserId}` }
     case 'refer_fpi':
       if (!action.note.trim()) return err('A note for FP&I is required.')
       return { ok: true, to: 'Referred to FP&I', assignedTo: actor.id, patch: { fpi_referral: action.note }, event: 'Referred to FP&I for feedback' }

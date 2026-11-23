@@ -20,6 +20,8 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   const isJson = res.headers.get('content-type')?.includes('json')
   const data = isJson ? await res.json() : await res.text()
   if (!res.ok) throw new ApiError(res.status, (data as any)?.error ?? `Request failed (${res.status})`)
+  // A business refusal (e.g. CRM rejects the EDD SR) comes back as HTTP 200 with "refused": shown as an error, without a console error.
+  if (data && typeof data === 'object' && typeof (data as any).refused === 'string') throw new ApiError(200, (data as any).refused)
   return data as T
 }
 
@@ -35,7 +37,11 @@ export async function download(path: string, filename: string) {
 
 /** Query scoped to the current user (cache is cleared when the user switches). */
 export function useApi<T = any>(path: string | null, opts: { refetchInterval?: number } = {}) {
-  return useQuery<T>({ queryKey: [getUserId(), path], queryFn: () => api<T>(path!), enabled: !!path, refetchInterval: opts.refetchInterval })
+  return useQuery<T>({
+    queryKey: [getUserId(), path], queryFn: () => api<T>(path!), enabled: !!path, refetchInterval: opts.refetchInterval,
+    // A refusal from the server (403 Chinese wall, 404 not found...) will not change on retry: fetch once and show the message.
+    retry: (n, e: any) => !(e instanceof ApiError && e.status >= 400 && e.status < 500) && n < 2,
+  })
 }
 
 /** Run a mutation, toast the outcome, refresh all queries. */

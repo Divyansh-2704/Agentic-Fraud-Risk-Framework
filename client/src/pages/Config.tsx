@@ -3,6 +3,13 @@ import { api, useAct, useApi } from '../api'
 import { hasRole, useMe } from '../components/Layout'
 import { Card, Field, Loading, Select } from '../components/ui'
 
+/** Names shown to the user when a setting is saved (never the internal key). */
+const CONFIG_LABELS: Record<string, string> = {
+  routingRules: 'Case routing table', afsThresholdAed: 'Advance Fee Scam threshold X', slaMinutes: 'Alert SLA', caseSlaDays: 'Case SLA',
+  maxReschedules: 'Maximum re-schedules', rescheduleHours: 'Re-schedule delay', historyAlerts: 'Historical alerts shown', txnMonths: 'Transaction history window',
+  eddAlertDays: 'EDD notification threshold', archiveDays: 'Archive period', reminderDays: 'Calendar reminder period', holidays: 'Holiday list',
+}
+
 /** Parameterised rules (routing table FR-CASE-035, the "X" threshold, SLAs, re-schedule limits, etc.). */
 export function ConfigPage() {
   const me = useMe()
@@ -13,7 +20,7 @@ export function ConfigPage() {
   if (q.isLoading || !cfg) return <Loading />
   const isSuper = hasRole(me, 'SUPER_USER')
   const fpiCan = isSuper || hasRole(me, 'FPI_APPROVER', 'FPI_REVIEWER')
-  const save = (key: string) => act(() => api(`/config/${key}`, { method: 'PUT', body: { value: cfg[key] } }), `${key} saved`)
+  const save = (key: string) => act(() => api(`/config/${key}`, { method: 'PUT', body: { value: cfg[key] } }), `${CONFIG_LABELS[key] ?? key} saved`)
   const num = (key: string, label: string, can = isSuper) => (
     <div className="row" style={{ alignItems: 'flex-end' }}>
       <Field label={label}><input className="input" type="number" style={{ width: 160 }} disabled={!can} value={cfg[key] ?? ''} onChange={(e) => setCfg({ ...cfg, [key]: Number(e.target.value) })} /></Field>
@@ -26,14 +33,18 @@ export function ConfigPage() {
       <div className="stack">
         <Card title="Case routing on Checker approval (FR-CASE-035)" actions={fpiCan && <button className="btn btn-sm btn-primary" onClick={() => save('routingRules')}>Save routing table</button>}>
           <table className="tbl">
-            <thead><tr><th>Rule</th><th>When Risk Category L1/L2 is…</th><th>Action</th><th>Email to</th></tr></thead>
+            <thead><tr><th>Rule</th><th>When Risk Category L1/L2 is…</th><th>Action</th><th>Email to (each team gets only its own cases)</th></tr></thead>
             <tbody>
               {cfg.routingRules.map((r: any, i: number) => (
                 <tr key={r.id}>
                   <td><b>{r.id}</b><div className="small muted">{r.label}</div></td>
                   <td><input className="input" disabled={!fpiCan || !r.categories.length} value={r.categories.join(', ') || 'All other cases'} onChange={(e) => { const rr = [...cfg.routingRules]; rr[i] = { ...r, categories: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) }; setCfg({ ...cfg, routingRules: rr }) }} /></td>
                   <td style={{ width: 210 }}><Select disabled={!fpiCan} value={r.action} placeholder="" onChange={(v) => { const rr = [...cfg.routingRules]; rr[i] = { ...r, action: v }; setCfg({ ...cfg, routingRules: rr }) }} options={[{ value: 'close_email', label: 'Close + email team' }, { value: 'close', label: 'Close' }, { value: 'threshold', label: 'Close if ≤ X, else investigate' }, { value: 'investigate', label: 'FP&I Investigator pool' }]} /></td>
-                  <td><input className="input" disabled={!fpiCan || r.action !== 'close_email'} value={r.emailTo ?? ''} onChange={(e) => { const rr = [...cfg.routingRules]; rr[i] = { ...r, emailTo: e.target.value }; setCfg({ ...cfg, routingRules: rr }) }} /></td>
+                  <td>{r.action === 'close_email' && r.emailByCategory
+                    ? <div className="stack" style={{ gap: 4 }}>{Object.entries(r.emailByCategory as Record<string, string>).map(([cat, to]) => (
+                        <label key={cat} className="row small" style={{ gap: 6, flexWrap: 'nowrap' }}><span style={{ width: 120 }}>{cat}</span><input className="input" disabled={!fpiCan} value={to} onChange={(e) => { const rr = [...cfg.routingRules]; rr[i] = { ...r, emailByCategory: { ...r.emailByCategory, [cat]: e.target.value } }; setCfg({ ...cfg, routingRules: rr }) }} /></label>
+                      ))}</div>
+                    : <input className="input" disabled={!fpiCan || r.action !== 'close_email'} value={r.emailTo ?? ''} onChange={(e) => { const rr = [...cfg.routingRules]; rr[i] = { ...r, emailTo: e.target.value }; setCfg({ ...cfg, routingRules: rr }) }} />}</td>
                 </tr>
               ))}
             </tbody>

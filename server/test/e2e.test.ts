@@ -3,7 +3,7 @@
 import type { AddressInfo } from 'node:net'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/routes.js'
-import { get } from '../src/db.js'
+import { closeDb, get } from '../src/db.js'
 import { resetDb, seedConfig, seedCustomers, seedUsers } from '../src/seed.js'
 
 let baseUrl = ''
@@ -22,19 +22,19 @@ const ok = async (user: string, method: string, path: string, body?: unknown) =>
 }
 
 beforeAll(async () => {
-  resetDb(); seedConfig(); seedUsers()
-  const custs = seedCustomers()
-  cif = custs.find((c) => get('SELECT entity FROM customers WHERE cif = ?', c)!.entity === 'Retail')!
+  await resetDb(); await seedConfig(); await seedUsers()
+  const custs = await seedCustomers()
+  for (const c of custs) if ((await get('SELECT entity FROM customers WHERE cif = ?', c))!.entity === 'Retail') { cif = c; break }
   server = createApp().listen(0)
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 })
-afterAll(() => server?.close())
+afterAll(async () => { server?.close(); await closeDb() })
 
 describe('full fraud lifecycle over the API', () => {
   let alertId = '', caseId = ''
 
   it('ingests and triages an alert, then the analyst confirms fraud and creates a case', async () => {
-    const acct = JSON.parse(get('SELECT accounts FROM customers WHERE cif = ?', cif)!.accounts)[0]
+    const acct = JSON.parse((await get('SELECT accounts FROM customers WHERE cif = ?', cif))!.accounts)[0]
     alertId = (await ok('u-super', 'POST', '/alerts/ingest', { alertDateTime: new Date().toISOString(), riskScore: 91, category: 'Detection', scenarioId: 'SC-310', ruleId: 'DSP-R310', ruleName: 'Mule pattern', alertType: 'Mule account', cif, accountNumber: acct, txnAmount: 25000 })).id
     const ws = await ok('u-omar', 'GET', `/alerts/${alertId}`)
     expect(ws.alert.complexity).toBe('High')

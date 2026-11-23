@@ -60,8 +60,9 @@ export const FPI_EMAIL = 'fpi.team@auronova.example'
 
 /** Golden control rule (FR-CASE-030, FR-CASE-085): whoever creates or prepares never checks, reviews or approves. */
 export function separationError(s: CaseSnapshot, userId: string, stage: 'CHECKER' | 'REVIEWER' | 'APPROVER'): string | null {
-  if (userId === s.createdBy) return 'Separation of duties: the person who created this case cannot check, review or approve it (FR-CASE-085).'
+  // At the Checker desk the maker rule (FR-CASE-030) is the one that applies, even when the maker also created the case.
   if (stage === 'CHECKER' && userId === s.makerId) return 'Separation of duties: the Fraud Ops Maker cannot be the Checker of the same case (FR-CASE-030).'
+  if (userId === s.createdBy) return 'Separation of duties: the person who created this case cannot check, review or approve it (FR-CASE-085).'
   if (stage !== 'CHECKER') {
     if (userId === s.makerId || userId === s.checkerId) return 'Separation of duties: Fraud Ops maker/checker of this case cannot sign it off in FP&I.'
     if (s.investigators.includes(userId) || userId === s.investigatorId) return 'Separation of duties: an investigator of this case cannot review or approve it.'

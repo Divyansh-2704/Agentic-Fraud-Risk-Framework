@@ -1,5 +1,5 @@
 import type { Role, User } from '../../../shared/src/index.js'
-import { all, get, insert, json, nowIso, type Row } from '../db.js'
+import { cachedUserRows, insert, json, nowIso, type Row } from '../db.js'
 
 export class HttpError extends Error {
   constructor(public status: number, message: string) { super(message) }
@@ -7,20 +7,42 @@ export class HttpError extends Error {
 export const bad = (msg: string) => new HttpError(400, msg)
 export const forbidden = (msg: string) => new HttpError(403, msg)
 export const notFound = (msg = 'Not found') => new HttpError(404, msg)
+/** A business rule refused the request (e.g. CRM rejects the EDD SR). Sent as 422 so it is not reported as a client error. */
+export const refused = (msg: string) => new HttpError(422, msg)
 
 export function rowToUser(r: Row): User {
   return { id: r.id, name: r.name, email: r.email, roles: json(r.roles, []), entities: json(r.entities, []), dept: r.dept }
 }
-export const listUsers = () => all('SELECT * FROM users ORDER BY name').map(rowToUser)
+// Users are served from the in-memory cache (refreshed per request, see db.ts refreshCache).
+export const listUsers = () => cachedUserRows().map(rowToUser)
 export function getUser(id: string | undefined | null): User | undefined {
   if (!id) return undefined
-  const r = get('SELECT * FROM users WHERE id = ?', id)
+  const r = cachedUserRows().find((x) => x.id === id)
   return r ? rowToUser(r) : undefined
 }
 export const userName = (id: string | null | undefined) => (id ? getUser(id)?.name ?? id : null)
 export const hasRole = (u: User, ...roles: Role[]) => roles.some((r) => u.roles.includes(r))
 export const isFpi = (u: User) => u.roles.some((r) => r.startsWith('FPI_'))
 export const isAdminish = (u: User) => hasRole(u, 'SUPER_USER', 'MANAGER')
+
+// ---------- Team mailboxes (shared inboxes each user can read in the Email outbox) ----------
+export const MAILBOX = {
+  FRAUD_OPS: 'fraud.ops@auronova.example',
+  FPI: 'fpi.team@auronova.example',
+  HR_GOV: 'hr.governance@auronova.example',
+} as const
+export function teamMailboxes(u: User): string[] {
+  const out = new Set<string>()
+  if (hasRole(u, 'FO_ANALYST', 'FO_MAKER', 'FO_CHECKER', 'MANAGER')) out.add(MAILBOX.FRAUD_OPS)
+  if (isFpi(u)) out.add(MAILBOX.FPI)
+  if (hasRole(u, 'HR', 'GOVERNANCE')) out.add(MAILBOX.HR_GOV)
+  return [...out]
+}
+/** Whether an outbox email is addressed to the user, directly or through one of their team mailboxes. */
+export function emailVisibleTo(u: User, e: { to_addr?: string | null; cc?: string | null }) {
+  const addrs = `${e.to_addr ?? ''};${e.cc ?? ''}`.toLowerCase()
+  return [u.email, ...teamMailboxes(u)].some((a) => addrs.includes(a.toLowerCase()))
+}
 
 // ---------- Chinese wall (FR-LP-02) ----------
 export function canSeeAlert(u: User, a: Row) {
@@ -39,8 +61,8 @@ export function canSeeCase(u: User, c: Row) {
 }
 
 // ---------- Simulated Outlook (all system emails land here) ----------
-export function sendEmail(e: { to: string; cc?: string; subject: string; body: string; relatedType?: string; relatedId?: string; template?: string }) {
-  insert('outbox', { ts: nowIso(), to_addr: e.to, cc: e.cc ?? '', subject: e.subject, body: e.body, related_type: e.relatedType ?? null, related_id: e.relatedId ?? null, template: e.template ?? null })
+export async function sendEmail(e: { to: string; cc?: string; subject: string; body: string; relatedType?: string; relatedId?: string; template?: string }) {
+  await insert('outbox', { ts: nowIso(), to_addr: e.to, cc: e.cc ?? '', subject: e.subject, body: e.body, related_type: e.relatedType ?? null, related_id: e.relatedId ?? null, template: e.template ?? null })
 }
 
 /** Simple fuzzy match (FR-LP-008/009): substring, or every query token within edit distance 1-2 of some word. */

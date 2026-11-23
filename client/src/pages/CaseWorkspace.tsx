@@ -1,10 +1,11 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { CASE_ACTION_LABELS, type CaseAction } from '../../../shared/src/index'
-import { api, download, useAct, useApi } from '../api'
+import { api, download, getUserId, useAct, useApi } from '../api'
 import { AiAssist } from '../components/AiAssist'
 import { hasRole, useMe } from '../components/Layout'
-import { Badge, Card, CommentModal, ErrorBox, Field, fmtAed, fmtDateTime, fmtDur, Loading, PriorityBadge, Select, StatusBadge } from '../components/ui'
+import { Badge, Card, CommentModal, ConfirmModal, ErrorBox, Field, fmtAed, fmtDateTime, fmtDur, Loading, PriorityBadge, Select, StatusBadge, useToast } from '../components/ui'
 import { ownerLabel } from './CaseList'
 import * as S from './caseSections'
 
@@ -141,6 +142,19 @@ function ActionRail({ full, dirty, save }: { full: any; dirty: boolean; save: ()
   const c = full.case
   const [pending, setPending] = useState<CaseAction | null>(null)
   const [assignee, setAssignee] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [toggleDisable, setToggleDisable] = useState(false)
+  const qc = useQueryClient()
+  const toast = useToast()
+  // Leave the page before refreshing anything, so the deleted case is never requested again.
+  const deleteDraft = async () => {
+    try { await api(`/cases/${c.id}`, { method: 'DELETE' }) } catch (e: any) { toast(e.message ?? 'Delete failed', true); return }
+    setConfirmDelete(false)
+    qc.removeQueries({ queryKey: [getUserId(), `/cases/${c.id}`] })
+    nav('/cases')
+    toast('Draft deleted')
+    void qc.invalidateQueries()
+  }
   const v = full.validation
   const doTransition = async (action: CaseAction, comment: string) => {
     if (dirty) await save()
@@ -174,7 +188,7 @@ function ActionRail({ full, dirty, save }: { full: any; dirty: boolean; save: ()
         {c.owner === 'FO_CHECKER' && full.routingPreview && <div className="alert-box info small"><div><b>If approved:</b> {full.routingPreview.explanation}</div></div>}
         {full.actions.length > 0 && <div className="kpi-label">Your actions</div>}
         {full.actions.map((a: CaseAction) => <button key={a} className={`btn btn-${TONE[a] ?? 'primary'}`} style={{ justifyContent: 'center' }} onClick={() => setPending(a)}>{CASE_ACTION_LABELS[a]}</button>)}
-        {c.status === 'Draft' && c.returned_count === 0 && (c.created_by === me.id || hasRole(me, 'SUPER_USER')) && <button className="btn btn-danger btn-sm" onClick={async () => { if (confirm(`Delete draft ${c.id}?`)) { const r = await act(() => api(`/cases/${c.id}`, { method: 'DELETE' }), 'Draft deleted'); if (r) nav('/cases') } }}>Delete draft</button>}
+        {full.canDelete && <button className="btn btn-danger btn-sm" onClick={() => setConfirmDelete(true)}>Delete draft</button>}
         {hasRole(me, 'SUPER_USER', 'MANAGER') && !c.closed && (
           <>
             <div className="hr" />
@@ -183,9 +197,17 @@ function ActionRail({ full, dirty, save }: { full: any; dirty: boolean; save: ()
             <button className="btn btn-sm" disabled={!assignee} onClick={() => act(() => api(`/cases/${c.id}/claim`, { method: 'POST', body: { toUserId: assignee } }), 'Case assigned')}>Assign</button>
           </>
         )}
-        {hasRole(me, 'SUPER_USER') && <button className="btn btn-sm btn-danger" onClick={() => { const comment = prompt(c.disabled ? 'Reason to enable:' : 'Reason to disable this case:'); if (comment) act(() => api(`/cases/${c.id}/disable`, { method: 'POST', body: { disabled: !c.disabled, comment } }), c.disabled ? 'Case enabled' : 'Case disabled') }}>{c.disabled ? 'Enable case' : 'Disable case'}</button>}
+        {hasRole(me, 'SUPER_USER') && <button className="btn btn-sm btn-danger" onClick={() => setToggleDisable(true)}>{c.disabled ? 'Enable case' : 'Disable case'}</button>}
         {c.closed && <div className="alert-box ok small">Closed {fmtDateTime(c.closed_at)}{c.report_email_at && <> · final report emailed {fmtDateTime(c.report_email_at)}</>}. Net loss {fmtAed(full.data.financialImpact.net)}.</div>}
       </div>
+      {confirmDelete && (
+        <ConfirmModal title={`Delete draft ${c.id}?`} tone="danger" confirm="Delete draft" onClose={() => setConfirmDelete(false)} onConfirm={deleteDraft}
+          message={<>The draft and everything recorded on it are removed permanently. This is only possible because the case has never been submitted or returned (FR-CASE-087).</>} />
+      )}
+      {toggleDisable && (
+        <CommentModal title={c.disabled ? 'Enable case' : 'Disable case'} label="Reason" confirm={c.disabled ? 'Enable case' : 'Disable case'} tone="danger" onClose={() => setToggleDisable(false)}
+          onConfirm={async (comment) => { await act(() => api(`/cases/${c.id}/disable`, { method: 'POST', body: { disabled: !c.disabled, comment } }), c.disabled ? 'Case enabled' : 'Case disabled'); setToggleDisable(false) }} />
+      )}
       {pending && (
         <CommentModal title={CASE_ACTION_LABELS[pending]} confirm={CASE_ACTION_LABELS[pending]} tone={TONE[pending] ?? 'primary'} onClose={() => setPending(null)} onConfirm={(cm) => doTransition(pending, cm)}>
           {pending === 'checker_approve' && full.routingPreview && <div className="alert-box info small">{full.routingPreview.explanation}</div>}

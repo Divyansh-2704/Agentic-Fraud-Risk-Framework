@@ -28,17 +28,53 @@ Bank entities are generic (**Retail**, **Islamic**, **Digital**), and every demo
 
 ## Run it
 
-You need Node.js 22.5 or later. The prototype uses the built-in `node:sqlite`, so there is no native build step.
+You need Node.js 22.5 or later and PostgreSQL (tested with PostgreSQL 18).
+
+**1. Database settings.** Copy `.env.example` to `.env` and put in your PostgreSQL password:
+
+```ini
+DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/fraud_detection
+TEST_DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/fraud_detection_test
+```
+
+`.env` is git-ignored, so the password never goes to GitHub. Without a `DATABASE_URL` the app falls back to an embedded SQLite file (`server/data/fcms.db`), so it still runs with no setup at all.
+
+**2. Install, set up the database, start.**
 
 ```powershell
 cd fraud-framework
 npm install
-npm run seed     # reset the database with synthetic bank-style data
-npm run dev      # API on http://localhost:4000, UI on http://localhost:5173
-npm test         # 23 workflow unit tests + 9 end-to-end API tests + 68 scenario-pack tests
-npm run test-guide   # rebuild docs/Agentic-Fraud-Test-Scenarios.xlsx from the scenario catalogue
+npm run db:setup     # creates fraud_detection + fraud_detection_test (if missing), the tables, and the demo data
+npm run dev          # API on http://localhost:4000, UI on http://localhost:5173
 ```
 
+| Command | What it does |
+|---|---|
+| `npm run db:setup` | Safe to re-run. Creates the databases and tables if missing; seeds demo data only into an empty database |
+| `npm run db:setup -- --reseed` or `npm run seed` | Wipes the application database and re-seeds the demo data |
+| `npm run test:all` | **Runs every automated test** and writes a report (see [Automated tests](#automated-tests)) |
+| `npm test` | Server tests only (Vitest) |
+| `npm run test:ui` | UI tests only (Playwright) |
+| `npm run test-guide` | Rebuilds `docs/Agentic-Fraud-Test-Scenarios.xlsx` from the scenario catalogue |
+| `npm run typecheck` / `npm run build` | Type check / production build |
+
+`GET /api/health` reports which database the server is using (`"database": "pg"` or `"sqlite"`).
+
+## Automated tests
+
+```powershell
+npm run test:all
+# or: powershell -ExecutionPolicy Bypass -File scripts/run-all-tests.ps1 [-SkipUI] [-SkipUnit] [-Headed] [-Grep "TC-C1"]
+```
+
+The script checks the PostgreSQL connection, type-checks, runs both suites below, and writes `test-runs/<date-time>/summary.md` with the raw results and the Playwright HTML report (screenshots and traces of any failure). All tests use `TEST_DATABASE_URL`: your demo data in `DATABASE_URL` is never touched.
+
+| Suite | Tests | Covers |
+|---|---|---|
+| Server (Vitest, `server/test`) | 108 | 23 workflow-rule tests; 9 API end-to-end tests (alert to closed case, recovery, re-open); 76 scenario-pack tests (every scenario's start state and outcome, plus the UAT issues-log fixes) |
+| UI (Playwright + Chromium, `e2e-ui/`) | 73 | Every scenario's **Start** button opens the right record in the right state; TC-A01 and TC-A02 end to end through the screens; one check per issue in the UAT issues log |
+
+The UI tests start their own API and UI on ports 4100 and 5273, so they can run while `npm run dev` is open.
 ## Test scenarios (UAT pack)
 
 55 scripted scenarios cover every alert and case situation in the flow workbook (Sheets 2 to 7) and the BRD:
@@ -106,9 +142,11 @@ fraud-framework/
   server/src/
     workflow/               Pure state machines (unit-tested): alert.ts, case.ts, routing.ts, financial.ts
     services/               DB-backed services: alerts, cases, report (docx), dashboard, common (Chinese wall, outbox, fuzzy search)
-    index.ts                Entry point (default-exports the Express app for Vercel; auto-seeds an empty DB)
-    routes.ts               Express routes;  db.ts: node:sqlite schema + helpers;  seed.ts: replays real workflows
-  server/test/              workflow.test.ts (rules), e2e.test.ts (whole lifecycle over HTTP)
+    index.ts                Entry point (default-exports the Express app for Vercel; creates tables + seeds an empty DB)
+    routes.ts               Express routes;  seed.ts: replays real workflows;  db-setup.ts: creates the PostgreSQL databases
+    db.ts                   Database layer: PostgreSQL (DATABASE_URL) or SQLite fallback, async helpers, transactions
+  server/test/              workflow.test.ts (rules), e2e.test.ts (whole lifecycle over HTTP), scenarios.test.ts (UAT pack + issues log)
+  e2e-ui/                   Playwright UI tests;  scripts/run-all-tests.ps1: runs everything and writes a report
   client/src/
     pages/                  One page per screen; caseSections.tsx holds every case section
     components/             Layout + role switcher, DataTable, KPI filters, Evidence, AI-assist slot
@@ -127,7 +165,7 @@ The seed drives every case through the **same services the API uses**, so the au
 | CRM EDD | Simulated. The SR fails for a CIF starting `NEW`, to show FR-ALT-025 |
 | Feature Store / Finacle / HRMS | Seeded tables, plus the HRMS list in config |
 | OpenPages / FIU | "Push" generates a reference ID |
-| Outlook | `outbox` table |
+| Outlook | `outbox` table. Users see mail to them and to their team mailbox (fraud.ops@, fpi.team@, hr.governance@) |
 | Maktaba | Link by reference |
 
 ## Next phase: the agent layer
@@ -145,4 +183,5 @@ The Excel notes ask for "Agent: tool call" and "Gen AI: Q&A". The hooks are in p
 - The BRD appendix files ("New Drop-down values.xlsx", "Fraud Tracker categories update.xlsx", "BRD for Fraud Management Reports") were not supplied. The risk categories and drop-downs in `shared/src/index.ts` are representative placeholders and can be configured.
 - FX rates are a static table, applied and stored per transaction.
 - Authentication is a demo header.
-- Files are stored on local disk at `server/data/uploads`.
+- Evidence files and final reports are stored in the database (`evidence_files` table), so every server instance can serve them.
+- **Hosted demo (Vercel):** set `DATABASE_URL` in the Vercel project to a cloud PostgreSQL (Neon, Supabase, Vercel Postgres...). Without it, each serverless instance falls back to its own temporary SQLite copy and changes do not persist between requests. A local PostgreSQL on your laptop is not reachable from Vercel.
