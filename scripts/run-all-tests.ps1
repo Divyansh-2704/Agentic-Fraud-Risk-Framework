@@ -55,7 +55,8 @@ if (-not $node) { Write-Host 'Node.js not found. Install it with: winget install
 Write-Host "  Node $(node -v)"
 if (-not (Test-Path (Join-Path $root 'node_modules'))) { Write-Host '  Installing dependencies (npm install)...'; npm install --no-audit --no-fund | Out-Null }
 if (-not (Test-Path (Join-Path $root '.env'))) {
-  Write-Host '  No .env file: copy .env.example to .env and set your PostgreSQL password. Tests will use in-memory SQLite.' -ForegroundColor Yellow
+  Write-Host '  No .env file: copy .env.example to .env and set your PostgreSQL password, then run this script again.' -ForegroundColor Red
+  exit 1
 } else {
   Write-Host '  Checking PostgreSQL and creating the test database if needed...'
   $setup = npm run db:setup 2>&1

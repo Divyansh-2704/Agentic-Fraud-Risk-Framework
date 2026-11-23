@@ -1,10 +1,8 @@
 import cors from 'cors'
 import express, { type NextFunction, type Request, type Response } from 'express'
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import type { User } from '../../shared/src/index.js'
 import { AGENTS, AGENT_GUARDRAILS, ALERT_STATUSES, CASE_STATUSES, DROPDOWNS, PRECAUTION_CATALOGUE, RISK_CATEGORIES, CHECKLIST_TEMPLATES, ALERT_SUBCLASS, PREVENTION_DECISIONS, POST_TASK_TYPES } from '../../shared/src/index.js'
-import { all, DATA_DIR, get, getConfig, initDb, loadFile, refreshCache, setConfig } from './db.js'
+import { all, get, getConfig, initDb, loadFile, refreshCache, setConfig } from './db.js'
 import * as A from './services/alerts.js'
 import * as C from './services/cases.js'
 import { getUser, hasRole, HttpError, listUsers, forbidden, bad, notFound, canSeeCase, emailVisibleTo } from './services/common.js'
@@ -143,9 +141,7 @@ export function createApp() {
     const e = await get('SELECT * FROM evidence WHERE id = ?', id)
     if (!e || !e.path) throw notFound('No file stored for this evidence item.')
     if (e.case_id) { const c = await get('SELECT * FROM cases WHERE id = ?', e.case_id); if (c && !canSeeCase(req.user, c)) throw forbidden('Chinese wall.') }
-    let buf = await loadFile(e.path)
-    const legacy = join(DATA_DIR, 'uploads', e.path) // files saved on local disk by older versions
-    if (!buf && existsSync(legacy)) buf = readFileSync(legacy)
+    const buf = await loadFile(e.path)
     if (!buf) throw notFound('File missing')
     res.setHeader('Content-Type', e.mime || 'application/octet-stream')
     res.setHeader('Content-Disposition', `attachment; filename="${String(e.name).replace(/"/g, '')}"`)

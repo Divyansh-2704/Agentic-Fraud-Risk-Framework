@@ -28,7 +28,7 @@ Bank entities are generic (**Retail**, **Islamic**, **Digital**), and every demo
 
 ## Run it
 
-You need Node.js 22.5 or later and PostgreSQL (tested with PostgreSQL 18).
+You need Node.js 22.5 or later and PostgreSQL (tested with PostgreSQL 18). The app runs on PostgreSQL only, locally and on Vercel.
 
 **1. Database settings.** Copy `.env.example` to `.env` and put in your PostgreSQL password:
 
@@ -37,7 +37,7 @@ DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/fraud_detection
 TEST_DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/fraud_detection_test
 ```
 
-`.env` is git-ignored, so the password never goes to GitHub. Without a `DATABASE_URL` the app falls back to an embedded SQLite file (`server/data/fcms.db`), so it still runs with no setup at all.
+`.env` is git-ignored, so the password never goes to GitHub. Without a `DATABASE_URL` the API answers 503 with a message explaining what to set.
 
 **2. Install, set up the database, start.**
 
@@ -58,7 +58,7 @@ npm run dev          # API on http://localhost:4000, UI on http://localhost:5173
 | `npm run test-guide` | Rebuilds `docs/Agentic-Fraud-Test-Scenarios.xlsx` from the scenario catalogue |
 | `npm run typecheck` / `npm run build` | Type check / production build |
 
-`GET /api/health` reports which database the server is using (`"database": "pg"` or `"sqlite"`).
+`GET /api/health` reports the database server and name the API is using (no credentials) and how many users it holds.
 
 ## Automated tests
 
@@ -144,7 +144,7 @@ fraud-framework/
     services/               DB-backed services: alerts, cases, report (docx), dashboard, common (Chinese wall, outbox, fuzzy search)
     index.ts                Entry point (default-exports the Express app for Vercel; creates tables + seeds an empty DB)
     routes.ts               Express routes;  seed.ts: replays real workflows;  db-setup.ts: creates the PostgreSQL databases
-    db.ts                   Database layer: PostgreSQL (DATABASE_URL) or SQLite fallback, async helpers, transactions
+    db.ts                   Database layer: PostgreSQL (DATABASE_URL), connection pool, async helpers, transactions, advisory locks
   server/test/              workflow.test.ts (rules), e2e.test.ts (whole lifecycle over HTTP), scenarios.test.ts (UAT pack + issues log)
   e2e-ui/                   Playwright UI tests;  scripts/run-all-tests.ps1: runs everything and writes a report
   client/src/
@@ -177,6 +177,23 @@ The Excel notes ask for "Agent: tool call" and "Gen AI: Q&A". The hooks are in p
 - The agents will use read-only tools scoped by the user's Chinese-wall access. Runs will be logged to `agent_runs`.
 - Every agent recommends or drafts only. A person decides, and maker-checker is unchanged.
 
+## Deploy on Vercel (PostgreSQL)
+
+Vercel cannot reach the PostgreSQL on your laptop, so the hosted app uses a cloud PostgreSQL. One-time setup:
+
+1. In Vercel, open the project, then **Storage** > **Create Database** > **Neon** (serverless PostgreSQL, free plan is enough).
+   Pick the region **US East (Washington, D.C. / aws-us-east-1)**, the same region as Vercel's functions (`iad1`), so the first-start seeding takes seconds, not minutes.
+2. Connect it to the project for **Production** and **Preview**. Vercel adds `DATABASE_URL` to the project's environment variables (`POSTGRES_URL` is also accepted).
+3. **Redeploy** (Deployments > ... > Redeploy). Environment variables only reach new deployments.
+4. Open `/api/health`. The first request creates the tables and seeds the demo data into the empty database (about 10 to 20 seconds, once). After that it shows `"users": 11` and `"db": "postgresql://...neon.tech/..."`.
+
+Notes:
+- Every serverless instance shares the same database, so changes persist across requests and users.
+- Concurrent cold starts are safe: schema creation and seeding run under PostgreSQL advisory locks, so one instance seeds and the others wait.
+- SSL is switched on automatically for non-local servers, with certificate checks. Add `?sslmode=no-verify` to the URL only for a provider whose certificate Node.js does not trust.
+- To reset the hosted demo data, switch to the System Administrator and use **Scenarios > Reset demo data** (it re-seeds on Vercel, next to the database). Running `npm run seed` from a laptop against a far-away cloud database works but is slow (thousands of round trips).
+- Without `DATABASE_URL` the hosted API answers 503 with a message that says what to configure.
+
 ## Known limitations
 
 - Data is synthetic.
@@ -184,4 +201,3 @@ The Excel notes ask for "Agent: tool call" and "Gen AI: Q&A". The hooks are in p
 - FX rates are a static table, applied and stored per transaction.
 - Authentication is a demo header.
 - Evidence files and final reports are stored in the database (`evidence_files` table), so every server instance can serve them.
-- **Hosted demo (Vercel):** set `DATABASE_URL` in the Vercel project to a cloud PostgreSQL (Neon, Supabase, Vercel Postgres...). Without it, each serverless instance falls back to its own temporary SQLite copy and changes do not persist between requests. A local PostgreSQL on your laptop is not reachable from Vercel.
