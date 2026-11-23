@@ -1,7 +1,7 @@
 // Seeds bank-style synthetic data and replays real workflows (through the same services the API uses),
 // so every case has a genuine audit trail. Run: npm run seed
 import type { User } from '../../shared/src/index.js'
-import { all, clearCache, closeDb, dbInfo, DIALECT, exec, freezeCache, get, initDb, insert, nowIso, refreshCache, setCachedUsers, setClock, setConfig, TABLES, tx, update } from './db.js'
+import { advisoryLock, all, clearCache, closeDb, dbInfo, exec, freezeCache, get, initDb, insert, LOCKS, nowIso, refreshCache, setCachedUsers, setClock, setConfig, TABLES, tx, update } from './db.js'
 import { DEFAULT_ROUTING_RULES } from './workflow/routing.js'
 import { AGENTS } from '../../shared/src/index.js'
 import * as A from './services/alerts.js'
@@ -20,11 +20,7 @@ const at = (ms: number) => setClock(ago(ms))
 
 export async function resetDb() {
   await initDb()
-  if (DIALECT === 'pg') await exec(`TRUNCATE ${TABLES.join(', ')} RESTART IDENTITY`)
-  else {
-    for (const t of TABLES) await exec(`DELETE FROM ${t}`)
-    await exec("DELETE FROM sqlite_sequence").catch(() => {})
-  }
+  await exec(`TRUNCATE ${TABLES.join(', ')} RESTART IDENTITY`)
   clearCache()
 }
 
@@ -336,12 +332,12 @@ async function seedEverything() {
   await C.sweepCases()
 }
 
-/** Rebuilds all demo data in one transaction (fast on PostgreSQL, and other users never see a half-seeded database). */
+/** Rebuilds all demo data in one transaction: other users never see a half-seeded database, and the advisory lock stops two server instances seeding at once. */
 async function seedAll() {
   await initDb()
   freezeCache(true)
   try {
-    await tx(seedEverything)
+    await tx(async () => { await advisoryLock(LOCKS.seed); await seedEverything() })
   } finally {
     setClock(null)
     freezeCache(false)

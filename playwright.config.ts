@@ -2,19 +2,17 @@
 // TEST database, so they never touch the demo data in the main database. Run: npm run test:ui
 import { defineConfig, devices } from '@playwright/test'
 import { existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 
 if (existsSync('.env')) process.loadEnvFile('.env')
-const testDb = /^postgres(ql)?:\/\//.test(process.env.TEST_DATABASE_URL ?? '') ? process.env.TEST_DATABASE_URL! : ''
+const testDb = process.env.TEST_DATABASE_URL ?? ''
+if (!/^postgres(ql)?:\/\//.test(testDb)) throw new Error('TEST_DATABASE_URL is not set to a PostgreSQL database (see .env.example).')
+if (testDb === process.env.DATABASE_URL) throw new Error('TEST_DATABASE_URL must point to a separate database: the UI tests wipe it.')
 const API_PORT = process.env.UI_TEST_API_PORT ?? '4100'
 const UI_PORT = process.env.UI_TEST_UI_PORT ?? '5273'
 const serverEnv: Record<string, string> = {
   ...(process.env as Record<string, string>),
   PORT: API_PORT,
-  DATABASE_URL: testDb, // '' = SQLite fallback (file below)
-  FCMS_DB: join(tmpdir(), 'fcms-ui-test.db'),
-  FCMS_DATA_DIR: join(tmpdir(), 'fcms-ui-test'),
+  DATABASE_URL: testDb,
 }
 
 export default defineConfig({

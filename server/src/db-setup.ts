@@ -11,11 +11,17 @@ if (existsSync(envFile)) process.loadEnvFile(envFile)
 const pg = createRequire(import.meta.url)('pg') as typeof import('pg')
 
 async function ensureDatabase(url: string) {
-  const target = new URL(url)
-  const name = decodeURIComponent(target.pathname.slice(1))
+  const { poolConfig } = await import('./db.js')
+  const name = decodeURIComponent(new URL(url).pathname.slice(1))
+  // Hosted databases (Neon, Supabase...) already exist and often do not allow connecting to "postgres": try the target first.
+  const probe = new pg.Client(poolConfig(url, false))
+  try { await probe.connect(); await probe.end(); console.log(`  database ${name}: reachable`); return } catch (e: any) {
+    await probe.end().catch(() => {})
+    if (e?.code !== '3D000') throw e // 3D000 = database does not exist; anything else (password, network) is a real error
+  }
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error(`Unsupported database name "${name}" (letters, digits and _ only).`)
   const admin = new URL(url); admin.pathname = '/postgres'
-  const client = new pg.Client({ connectionString: admin.toString() })
+  const client = new pg.Client(poolConfig(admin.toString(), false))
   await client.connect()
   try {
     const exists = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [name])
