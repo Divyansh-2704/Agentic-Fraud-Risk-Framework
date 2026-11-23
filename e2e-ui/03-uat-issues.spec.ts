@@ -23,7 +23,7 @@ test('#2 TC-A01 the raw DSP payload pop-up closes with Escape', async ({ page })
   await expect(page.locator('.modal')).toBeHidden()
 })
 
-test('#3 / #23 TC-C16 team mailboxes: Fraud Ops and FP&I users see their team emails in the outbox', async ({ page }) => {
+test('#3 / #22 TC-C16 team mailboxes: Fraud Ops and FP&I users see their team emails in the outbox', async ({ page }) => {
   await openAs(page, 'u-aisha', '/outbox')
   await expect(main(page)).toContainText('FP&I request: please create and action case FC-TC-C16')
   await openAs(page, 'u-mariam', '/outbox')
@@ -32,7 +32,7 @@ test('#3 / #23 TC-C16 team mailboxes: Fraud Ops and FP&I users see their team em
   await expect(main(page)).not.toContainText('FP&I request: please create and action case FC-TC-C16')
 })
 
-test('#5 TC-A02 rule precision shows last-7-days activity and the last decision per rule', async ({ page }) => {
+test('#4 TC-A02 rule precision shows last-7-days activity and the last decision per rule', async ({ page }) => {
   await openAs(page, 'u-super', '/dashboards')
   const card = main(page).locator('.card', { hasText: 'Rule precision: feedback to DSP' })
   await expect(card.locator('th', { hasText: 'Last 7 days' })).toBeVisible()
@@ -40,7 +40,7 @@ test('#5 TC-A02 rule precision shows last-7-days activity and the last decision 
   await expect(card.locator('tbody tr', { hasText: 'DSP-R205' })).toBeVisible()
 })
 
-test('#6 / #7 / #8 TC-A04 CRM refusal is a handled message (no HTTP error); calendar entry and equal columns', async ({ page }) => {
+test('#5 / #6 / #7 TC-A04 CRM refusal is a handled message (no HTTP error); calendar entry and equal columns', async ({ page }) => {
   const errors: string[] = []
   page.on('response', (r) => { if (r.url().includes('/api/') && r.status() >= 400) errors.push(`${r.status()} ${r.url()}`) })
   await openAs(page, 'u-aisha', '/alerts/ALT-TC-A04')
@@ -59,7 +59,7 @@ test('#6 / #7 / #8 TC-A04 CRM refusal is a handled message (no HTTP error); cale
   expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(2)
 })
 
-test('#9 global search suggests matches while typing', async ({ page }) => {
+test('#8 global search suggests matches while typing', async ({ page }) => {
   await openAs(page, 'u-aisha', '/')
   await page.getByRole('textbox', { name: 'Global search' }).fill('ALT-TC-A07')
   const option = page.getByRole('listbox', { name: 'Search suggestions' }).getByRole('option').first()
@@ -68,7 +68,7 @@ test('#9 global search suggests matches while typing', async ({ page }) => {
   await expect(page).toHaveURL(/\/alerts\/ALT-TC-A07$/)
 })
 
-test('#10 TC-A06 while referred to FP&I, Raise EDD SR is not offered', async ({ page }) => {
+test('#9 TC-A06 while referred to FP&I, Raise EDD SR is not offered', async ({ page }) => {
   await openAs(page, 'u-layla', '/alerts/ALT-TC-A06')
   await btn(page, 'Assign to me').click()
   await actWithComment(page, 'Refer to FP&I', 'Is the beneficiary a known mule?')
@@ -77,7 +77,7 @@ test('#10 TC-A06 while referred to FP&I, Raise EDD SR is not offered', async ({ 
   await expect(btn(page, 'Submit decision')).toBeDisabled()
 })
 
-test('#11 TC-A07 the activity log names the colleague on re-assign', async ({ page }) => {
+test('#10 TC-A07 the activity log names the colleague on re-assign', async ({ page }) => {
   await openAs(page, 'u-omar', '/alerts/ALT-TC-A07')
   await btn(page, 'Assign to me').click()
   await btn(page, 'Re-assign').click()
@@ -87,7 +87,7 @@ test('#11 TC-A07 the activity log names the colleague on re-assign', async ({ pa
   await expect(main(page)).not.toContainText('Re-assigned to u-layla')
 })
 
-test('#12 / #13 TC-A10 blocked alert is requested once; the HR creator cannot delete the case', async ({ page }) => {
+test('#11 / #12 TC-A10 blocked alert is requested once; the HR creator cannot delete the case', async ({ page }) => {
   const hits: number[] = []
   page.on('response', (r) => { if (r.url().endsWith('/api/alerts/ALT-TC-A10')) hits.push(r.status()) })
   await openAs(page, 'u-aisha', '/alerts/ALT-TC-A10')
@@ -108,7 +108,7 @@ test('#12 / #13 TC-A10 blocked alert is requested once; the HR creator cannot de
   await expect(main(page).getByRole('button', { name: 'Delete draft' })).toHaveCount(0)
 })
 
-test('#14 TC-A12 the overdue row is shaded red in the alert queue', async ({ page }) => {
+test('#13 TC-A12 the overdue row is shaded red in the alert queue', async ({ page }) => {
   await openAs(page, 'u-omar', '/alerts')
   const row = main(page).locator('tr.overdue', { hasText: 'ALT-TC-A12' })
   await expect(row).toBeVisible()
@@ -116,7 +116,7 @@ test('#14 TC-A12 the overdue row is shaded red in the alert queue', async ({ pag
   expect(bg).toBe('rgb(255, 241, 241)')
 })
 
-test('#15 TC-B03 recent prevention decisions are newest first', async ({ page }) => {
+test('#14 TC-B03 recent prevention decisions are newest first', async ({ page }) => {
   for (const [user, id] of [['u-layla', 'ALT-TC-B04'], ['u-omar', 'ALT-TC-B03']] as const) {
     await openAs(page, user, `/alerts/${id}`)
     await page.getByLabel(/^Decision/).selectOption(id === 'ALT-TC-B03' ? 'Reject' : 'Approve')
@@ -131,7 +131,7 @@ test('#15 TC-B03 recent prevention decisions are newest first', async ({ page })
   await expect(recent.nth(1)).toContainText('ALT-TC-B04')
 })
 
-test('#16 TC-C01 a manual case starts with today as Date reported', async ({ page }) => {
+test('#15 TC-C01 a manual case starts with today as Date reported', async ({ page }) => {
   await openAs(page, 'u-aisha', '/cases')
   await btn(page, /New case/).click()
   await page.locator('.modal').getByLabel('Customer CIF').fill('8800301')
@@ -144,12 +144,12 @@ test('#16 TC-C01 a manual case starts with today as Date reported', async ({ pag
   await expect(main(page).getByText('Before submitting:')).not.toContainText('Date reported')
 })
 
-test('#17 TC-C02 the maker sees the Checker rule FR-CASE-030', async ({ page }) => {
+test('#16 TC-C02 the maker sees the Checker rule FR-CASE-030', async ({ page }) => {
   await openAs(page, 'u-omar', '/cases/FC-TC-C02')
   await expect(main(page)).toContainText('the Fraud Ops Maker cannot be the Checker of the same case (FR-CASE-030)')
 })
 
-test('#18 TC-C05 routing R1 emails Cyber Security only', async ({ page }) => {
+test('#17 TC-C05 routing R1 emails Cyber Security only', async ({ page }) => {
   await openAs(page, 'u-layla', '/cases/FC-TC-C05')
   await btn(page, /^Pick up from/).click()
   await actWithComment(page, 'Approve (apply routing rules)', 'Approve: forward to Cyber Security.')
@@ -160,7 +160,7 @@ test('#18 TC-C05 routing R1 emails Cyber Security only', async ({ page }) => {
   await expect(row).not.toContainText('group.compliance@')
 })
 
-test('#19 TC-C13 the configuration toast names the setting, not its key', async ({ page }) => {
+test('#18 TC-C13 the configuration toast names the setting, not its key', async ({ page }) => {
   await openAs(page, 'u-mariam', '/config')
   const x = page.getByLabel(/^Advance Fee Scam threshold "X"/)
   await x.fill('10000')
@@ -169,7 +169,7 @@ test('#19 TC-C13 the configuration toast names the setting, not its key', async 
   await expect(toast(page)).not.toContainText('afsThresholdAed')
 })
 
-test('#20 / #21 / #22 TC-C14 delete draft: in-app confirmation, only the creator, no reload of the deleted case', async ({ page }) => {
+test('#19 / #20 / #21 TC-C14 delete draft: in-app confirmation, only the creator, no reload of the deleted case', async ({ page }) => {
   await openAs(page, 'u-omar', '/cases/FC-TC-C14')
   await expect(main(page).getByRole('button', { name: 'Delete draft' })).toHaveCount(0)
   const notFound: string[] = []
@@ -188,7 +188,7 @@ test('#20 / #21 / #22 TC-C14 delete draft: in-app confirmation, only the creator
   expect(notFound).toEqual([])
 })
 
-test('#24 TC-D04 a non-AFS case in investigation has no "Approve Advance Fee Scam" button', async ({ page }) => {
+test('#23 TC-D04 a non-AFS case in investigation has no "Approve Advance Fee Scam" button', async ({ page }) => {
   await openAs(page, 'u-rashid', '/cases/FC-TC-E01')
   await expect(btn(page, 'Submit to Reviewer')).toBeVisible()
   await expect(main(page).getByRole('button', { name: /Approve Advance Fee Scam/ })).toHaveCount(0)

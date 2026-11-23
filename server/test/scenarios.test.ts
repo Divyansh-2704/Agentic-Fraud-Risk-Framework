@@ -79,7 +79,7 @@ describe('scenario outcomes', () => {
     const id = await C.createCaseFromAlert(daniel, 'ALT-TC-A10')
     const c = await caseRow(id)
     expect([c.owner, c.assigned_to, canSeeCase(daniel, c)]).toEqual(['FO_MAKER', null, true])
-    // UAT issue 13: the HR creator can follow the case but can no longer delete it
+    // UAT issue 12: the HR creator can follow the case but can no longer delete it
     expect((await C.getCaseFull(daniel, id)).canDelete).toBe(false)
     await expect(C.deleteDraft(daniel, id)).rejects.toThrow(/Fraud Ops Maker/)
   })
@@ -114,7 +114,7 @@ describe('scenario outcomes', () => {
       await C.claimCase(layla, id)
       expect((await C.transitionCase(layla, id, 'checker_approve', 'ok')).status, id).toBe(to)
     }
-    // UAT issue 18: R1 emails only the team that owns the category
+    // UAT issue 17: R1 emails only the team that owns the category
     const c04 = await get("SELECT to_addr FROM outbox WHERE subject = 'Case FC-TC-C04 closed by routing rule R1'")
     const c05 = await get("SELECT to_addr FROM outbox WHERE subject = 'Case FC-TC-C05 closed by routing rule R1'")
     expect(c04!.to_addr).toBe('group.compliance@auronova.example')
@@ -136,7 +136,7 @@ describe('scenario outcomes', () => {
     expect(await status('FC-TC-C14')).toBeUndefined()
   })
 
-  it('TC-C16 the FP&I request email reaches the Fraud Ops team mailbox (UAT issue 23)', async () => {
+  it('TC-C16 the FP&I request email reaches the Fraud Ops team mailbox (UAT issue 22)', async () => {
     const mail = (await all("SELECT * FROM outbox WHERE subject = 'FP&I request: please create and action case FC-TC-C16'"))[0]
     expect(mail.to_addr).toBe('fraud.ops@auronova.example')
     expect(emailVisibleTo(U('u-aisha'), mail)).toBe(true)
@@ -151,7 +151,7 @@ describe('scenario outcomes', () => {
   })
 
   it('TC-D04 AFS direct approval; TC-D08 AFS approver return goes to the maker; TC-D09 reviewer cannot approve', async () => {
-    // UAT issue 24: a non-AFS case still in investigation has no "Approve Advance Fee Scam" action
+    // UAT issue 23: a non-AFS case still in investigation has no "Approve Advance Fee Scam" action
     expect((await C.getCaseFull(U('u-rashid'), 'FC-TC-E01')).actions).not.toContain('inv_approve_afs')
     expect((await C.getCaseFull(U('u-rashid'), 'FC-TC-D04')).actions).toContain('inv_approve_afs')
     expect((await C.transitionCase(U('u-rashid'), 'FC-TC-D04', 'inv_approve_afs', 'ok')).status).toBe('Final report generated and closed')
@@ -198,7 +198,7 @@ describe('scenario outcomes', () => {
 })
 
 describe('UAT issues log: fixes', () => {
-  it('issue 3 / 23: users see emails sent to their team mailbox', async () => {
+  it('issue 3 / 22: users see emails sent to their team mailbox', async () => {
     const toFpi = { to_addr: 'fpi.team@auronova.example', cc: '' }
     expect(emailVisibleTo(U('u-mariam'), toFpi)).toBe(true)
     expect(emailVisibleTo(U('u-rashid'), toFpi)).toBe(true)
@@ -206,7 +206,7 @@ describe('UAT issues log: fixes', () => {
     expect(emailVisibleTo(U('u-sana'), { to_addr: 'hr.governance@auronova.example' })).toBe(true)
   })
 
-  it('issue 5: rule precision shows recent activity per rule', async () => {
+  it('issue 4: rule precision shows recent activity per rule', async () => {
     const { dashboard } = await import('../src/services/dashboard.js')
     const d = await dashboard(U('u-super'), {})
     const r205 = d.rulePrecision.find((r: any) => r.rule === 'DSP-R205')!
@@ -215,25 +215,25 @@ describe('UAT issues log: fixes', () => {
     expect(r205.lastDecisionAt).toBeTruthy()
   })
 
-  it('issue 7: re-scheduled alerts show "Re-scheduled alert: <customer>" on the calendar', async () => {
+  it('issue 6: re-scheduled alerts show "Re-scheduled alert: <customer>" on the calendar', async () => {
     const cal = await C.calendar(U('u-super'))
     const item = cal.find((x: any) => x.kind === 'Re-scheduled alert')
     expect(item?.title).toMatch(/^Re-scheduled alert: /)
   })
 
-  it('issue 11: re-assign writes the colleague name in the activity log', async () => {
+  it('issue 10: re-assign writes the colleague name in the activity log', async () => {
     const a: any = (await A.listAlerts(U('u-aisha'), { scope: 'live', category: 'Detection', dept: 'FRAUD_OPS' })).rows.find((x: any) => x.status === 'Yet to start' && !x.id.startsWith('ALT-TC'))!
     await A.assignAlerts(U('u-aisha'), [a.id])
     await A.alertAct(U('u-aisha'), a.id, { kind: 'reassign', toUserId: 'u-layla' })
     expect((await get("SELECT action FROM alert_events WHERE alert_id = ? AND action LIKE 'Re-assigned%' ORDER BY id DESC LIMIT 1", a.id))!.action).toBe('Re-assigned to Layla Nasser')
   })
 
-  it('issue 16: a manual case starts with today as Date reported', async () => {
+  it('issue 15: a manual case starts with today as Date reported', async () => {
     const id = await C.createCase(U('u-aisha'), { cif: '8800314', description: 'Manual case' })
     expect((await C.getCaseFull(U('u-aisha'), id)).data.sourceDetails.dateReported).toBe(new Date().toISOString().slice(0, 10))
   })
 
-  it('issue 18: routing R1 picks the category mailbox', () => {
+  it('issue 17: routing R1 picks the category mailbox', () => {
     expect(evaluateRouting({ riskL1: 'Cyber Security', riskL2: 'Malware / Intrusion', successfulAmountAed: 1 }, DEFAULT_ROUTING_RULES, 10000).emailTo).toBe('cyber.security@auronova.example')
     expect(evaluateRouting({ riskL1: 'Group Compliance', riskL2: 'Regulatory / AML', successfulAmountAed: 1 }, DEFAULT_ROUTING_RULES, 10000).emailTo).toBe('group.compliance@auronova.example')
   })
