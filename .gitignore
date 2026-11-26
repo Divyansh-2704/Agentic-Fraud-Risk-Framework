@@ -23,3 +23,8 @@ desktop.ini
 test-results/
 playwright-report/
 test-runs/
+
+# Python (Presidio masking service)
+__pycache__/
+*.pyc
+.venv/

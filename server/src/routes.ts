@@ -4,6 +4,8 @@ import type { User } from '../../shared/src/index.js'
 import { AGENTS, AGENT_GUARDRAILS, ALERT_STATUSES, CASE_STATUSES, DROPDOWNS, PRECAUTION_CATALOGUE, RISK_CATEGORIES, CHECKLIST_TEMPLATES, ALERT_SUBCLASS, PREVENTION_DECISIONS, POST_TASK_TYPES } from '../../shared/src/index.js'
 import { all, get, getConfig, initDb, loadFile, refreshCache, setConfig } from './db.js'
 import * as A from './services/alerts.js'
+import * as AI from './services/ai.js'
+import { rebalance } from './services/allocation.js'
 import * as C from './services/cases.js'
 import { getUser, hasRole, HttpError, listUsers, forbidden, bad, notFound, canSeeCase, emailVisibleTo } from './services/common.js'
 import { dashboard, processCounts } from './services/dashboard.js'
@@ -21,7 +23,7 @@ const h = (fn: H) => async (req: Request, res: Response, next: NextFunction) => 
   } catch (e) { next(e) }
 }
 
-const CONFIG_KEYS = ['routingRules', 'afsThresholdAed', 'slaMinutes', 'caseSlaDays', 'maxReschedules', 'rescheduleHours', 'historyAlerts', 'txnMonths', 'eddAlertDays', 'archiveDays', 'reminderDays', 'autoAllocate', 'scenarios', 'precautionMapping', 'checklistByCategory', 'reportableByCategory', 'holidays']
+const CONFIG_KEYS = ['routingRules', 'afsThresholdAed', 'slaMinutes', 'caseSlaDays', 'maxReschedules', 'rescheduleHours', 'historyAlerts', 'txnMonths', 'eddAlertDays', 'archiveDays', 'reminderDays', 'autoAllocate', 'scenarios', 'precautionMapping', 'checklistByCategory', 'reportableByCategory', 'holidays', 'aiAgent']
 
 export function createApp() {
   const app = express()
@@ -79,6 +81,18 @@ export function createApp() {
     return { id: await A.ingestAlert(req.body) }
   }))
   app.post('/api/alerts/assign', h((req) => A.assignAlerts(req.user, req.body.ids ?? [], req.body.toUserId)))
+  // Balanced allocation: preview (apply = false) or apply the redistribution of unstarted alerts (manager / super user)
+  app.post('/api/alerts/rebalance', h((req) => rebalance(req.user, req.body?.apply === true)))
+  // AI disposition agent: verdict + evidence per alert (masked data only reaches the LLM)
+  app.get('/api/alerts/:id/ai', h((req) => AI.getAnalysis(req.user, req.params.id)))
+  app.post('/api/alerts/:id/ai/analyse', h((req) => AI.analyseNow(req.user, req.params.id)))
+  app.get('/api/ai/status', h(() => AI.queueStatus()))
+  app.post('/api/ai/backfill', h((req) => AI.backfill(req.user, { includeClosed: req.body?.includeClosed === true, force: req.body?.force === true })))
+  app.post('/api/ai/process', h(async (req) => { // continue the queue (e.g. on Vercel, where each request has a time limit)
+    if (!hasRole(req.user, 'MANAGER', 'SUPER_USER')) throw forbidden('Only a manager or super user can run the AI queue.')
+    AI.kick()
+    return AI.queueStatus()
+  }))
   app.get('/api/alerts/:id', h((req) => A.alertWorkspace(req.user, req.params.id)))
   app.post('/api/alerts/:id/act', h((req) => A.alertAct(req.user, req.params.id, req.body)))
   app.put('/api/alerts/:id/precautions', h((req) => A.updatePrecautions(req.user, req.params.id, req.body.steps ?? [])))
@@ -174,7 +188,9 @@ export function createApp() {
   // ---------- AI agents (Sheet 8): registry only in v1; the agent layer plugs in here later ----------
   app.get('/api/agents', h(async () => {
     const reg = new Map((await all('SELECT id, status FROM agent_registry')).map((r) => [r.id, r.status]))
-    return { guardrails: AGENT_GUARDRAILS, agents: AGENTS.map((a) => ({ ...a, status: reg.get(a.id) ?? 'planned' })), runs: await all('SELECT * FROM agent_runs ORDER BY ts DESC LIMIT 50') }
+    const ai = AI.aiState()
+    const statusOf = (id: string) => id === 'disposition' ? (!ai.enabled ? 'switched off' : ai.configured ? 'live' : 'ready: needs API key') : reg.get(id) ?? 'planned'
+    return { guardrails: AGENT_GUARDRAILS, ai, agents: AGENTS.map((a) => ({ ...a, status: statusOf(a.id) })), runs: await all('SELECT * FROM agent_runs ORDER BY ts DESC LIMIT 50') }
   }))
   app.post('/api/agents/:id/run', h((req, res) => {
     if (!AGENTS.find((a) => a.id === req.params.id)) throw notFound('Unknown agent')

@@ -4,6 +4,8 @@ import { PRECAUTION_CATALOGUE, complexityToLevel } from '../../../shared/src/ind
 import { all, get, getConfig, insert, json, nextId, nowIso, run, tx, update, type Row } from '../db.js'
 import { alertTransition, slaMinutesFor, tatMs, type AlertAction, type AlertSnapshot } from '../workflow/alert.js'
 import { AGE_BUCKETS, ageBucket, bad, canSeeAlert, forbidden, fuzzyMatch, getUser, hasRole, listUsers, MAILBOX, notFound, sendEmail, userName } from './common.js'
+import { analystForNewAlert } from './allocation.js'
+import { analysisSummaries, enqueueAnalysis } from './ai.js'
 
 const MANDATORY_ALERT_FIELDS = ['alertDateTime', 'riskScore', 'category', 'scenarioId', 'ruleId', 'cif', 'accountNumber', 'alertType'] as const
 
@@ -16,7 +18,7 @@ export interface DspPayload {
 }
 
 // ---------- Ingestion (FR-ALT-01..09) ----------
-export async function ingestAlert(p: DspPayload, opts: { id?: string; now?: Date; skipAutoAllocate?: boolean } = {}) {
+export async function ingestAlert(p: DspPayload, opts: { id?: string; now?: Date; skipAutoAllocate?: boolean; skipAi?: boolean } = {}) {
   const raw = JSON.stringify(p) // FR-ALT-05: immutable raw payload
   const dq: string[] = MANDATORY_ALERT_FIELDS.filter((k) => p[k] === undefined || p[k] === null || p[k] === '')
   const cust = await get('SELECT * FROM customers WHERE cif = ?', p.cif) // Feature Store enrichment
@@ -53,26 +55,19 @@ export async function ingestAlert(p: DspPayload, opts: { id?: string; now?: Date
       if (def) await insert('alert_actions', { alert_id: id, category: def.category, step: def.step, selected: 1, prefilled: 1, vals: '{}', updated_at: created })
     }
     await insert('alert_events', { alert_id: id, ts: created, actor: 'system', action: 'Ingested from DSP', from_status: null, to_status: held ? 'Hold' : 'Yet to start', comment: dq.length ? `Data quality exception: ${dq.join(', ')}` : `Triage: ${complexity} (${complexityToLevel(complexity as any)}), routed to ${dept}` })
-    // FR-ALT-047/048 + FR-ALT-012: auto-allocation (always for prevention, configurable for detection)
-    const auto = getConfig<{ prevention: boolean; detection: boolean }>('autoAllocate', { prevention: true, detection: false })
+    // FR-ALT-047/048 + FR-ALT-012: balanced auto-allocation on arrival (always for prevention, configurable for detection)
+    const auto = getConfig<{ prevention: boolean; detection: boolean }>('autoAllocate', { prevention: true, detection: true })
     if (!opts.skipAutoAllocate && ((p.category === 'Prevention' && auto.prevention) || (p.category === 'Detection' && auto.detection))) {
-      const analyst = await leastLoadedAnalyst(dept, cust?.entity ?? 'Retail')
+      const analyst = await analystForNewAlert((await get('SELECT * FROM alerts WHERE id = ?', id))!)
       if (analyst) {
         await update('alerts', 'id', id, { assigned_to: analyst, assigned_at: created, status: held ? 'Hold' : 'WIP' })
-        await insert('alert_events', { alert_id: id, ts: created, actor: 'system', action: `Auto-allocated to ${userName(analyst)}`, from_status: null, to_status: held ? 'Hold' : 'WIP', comment: null })
+        await insert('alert_events', { alert_id: id, ts: created, actor: 'system', action: `Auto-allocated to ${userName(analyst)}`, from_status: null, to_status: held ? 'Hold' : 'WIP', comment: 'Balanced allocation: open-alert total, then priority mix, then typology mix (same customer stays with one analyst).' })
       }
     }
   })
+  // Pre-analyse on arrival: the AI disposition agent (masked data only) runs in the background.
+  if (!opts.skipAi) await enqueueAnalysis(id)
   return id
-}
-
-async function leastLoadedAnalyst(dept: string, entity: string) {
-  const role = dept === 'FRAUD_OPS' ? 'FO_ANALYST' : dept === 'GOVERNANCE' ? 'GOVERNANCE' : 'HR'
-  const candidates = listUsers().filter((u) => u.roles.includes(role as any) && u.entities.includes(entity as any))
-  if (!candidates.length) return null
-  const loads = await all<{ assigned_to: string; n: number }>("SELECT assigned_to, COUNT(*) AS n FROM alerts WHERE assigned_to IS NOT NULL AND status <> 'Closed' GROUP BY assigned_to")
-  const load = (uid: string) => Number(loads.find((l) => l.assigned_to === uid)?.n ?? 0)
-  return candidates.sort((a, b) => load(a.id) - load(b.id))[0].id
 }
 
 // ---------- Background sweep: re-schedules, SLA breaches, EDD ageing ----------
@@ -141,7 +136,8 @@ export interface AlertFilters { tab?: string; scope?: string; q?: string; status
 export async function listAlerts(u: User, f: AlertFilters) {
   await sweepAlerts()
   const archiveDays = getConfig<number>('archiveDays', 90)
-  const rows = (await all('SELECT * FROM alerts ORDER BY created_at DESC, id DESC')).filter((a) => canSeeAlert(u, a)).map(alertDto)
+  const ai = await analysisSummaries()
+  const rows = (await all('SELECT * FROM alerts ORDER BY created_at DESC, id DESC')).filter((a) => canSeeAlert(u, a)).map((a) => Object.assign(alertDto(a), { ai: ai.get(a.id) ?? null }))
   const scopeRows = rows.filter((a) => (f.scope === 'history' ? a.status === 'Closed' : a.status !== 'Closed'))
   let list = scopeRows
   if (f.tab === 'realtime') list = list.filter((a) => a.mode === 'Real Time')

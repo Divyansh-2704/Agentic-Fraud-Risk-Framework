@@ -14,7 +14,8 @@ console.log(`Test database: ${testDb.replace(/\/\/[^@]*@/, '//')}`)
 
 export default defineConfig({
   test: {
-    env: { DATABASE_URL: testDb },
+    // The AI agent never calls a real LLM from the tests (ai.test.ts switches it on against local mock services).
+    env: { DATABASE_URL: testDb, AI_AGENT_DISABLED: '1' },
     include: ['test/**/*.test.ts'],
     // The test files share one database, so they run one after another.
     fileParallelism: false,

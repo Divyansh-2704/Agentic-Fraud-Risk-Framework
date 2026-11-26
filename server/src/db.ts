@@ -78,11 +78,14 @@ CREATE TABLE IF NOT EXISTS outbox (id SERIAL PRIMARY KEY, ts TEXT, to_addr TEXT,
   related_type TEXT, related_id TEXT, template TEXT);
 CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT, updated_by TEXT, updated_at TEXT);
 CREATE TABLE IF NOT EXISTS agent_registry (id TEXT PRIMARY KEY, def TEXT, status TEXT);
+CREATE TABLE IF NOT EXISTS ai_analyses (alert_id TEXT PRIMARY KEY, status TEXT, verdict TEXT, confidence INTEGER, model TEXT, prompt_version TEXT,
+  result TEXT, masked_input TEXT, masked_output TEXT, mask_stats TEXT, error TEXT, attempts INTEGER DEFAULT 0, requested_at TEXT, started_at TEXT,
+  finished_at TEXT, duration_ms INTEGER, usage TEXT);
 CREATE TABLE IF NOT EXISTS agent_runs (id SERIAL PRIMARY KEY, agent_id TEXT, ts TEXT, actor TEXT, target_type TEXT,
   target_id TEXT, tool_calls TEXT, output TEXT, status TEXT);
 `
 /** Every table, children first (used by the seed reset). */
-export const TABLES = ['agent_runs', 'agent_registry', 'config', 'outbox', 'recoveries', 'post_tasks', 'case_investigators', 'audit_trail', 'evidence_files', 'evidence',
+export const TABLES = ['ai_analyses', 'agent_runs', 'agent_registry', 'config', 'outbox', 'recoveries', 'post_tasks', 'case_investigators', 'audit_trail', 'evidence_files', 'evidence',
   'activity_log', 'checklist_items', 'case_parties', 'case_transactions', 'cases', 'alert_events', 'alert_actions', 'alerts', 'transactions', 'customers', 'users']
 
 export type Row = Record<string, any>
@@ -180,6 +183,9 @@ export async function update(table: string, pk: string, id: unknown, obj: Row) {
   if (!keys.length) return
   await run(`UPDATE ${table} SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE ${pk} = ?`, ...keys.map((k) => obj[k]), id)
 }
+
+/** Runs fn on the shared pool even when called inside a transaction (for background work that outlives the caller). */
+export function outsideTx<T>(fn: () => T): T { return txStore.exit(fn) }
 
 /** Runs fn in a transaction on one pooled connection. Nested calls join the outer transaction. */
 export async function tx<T>(fn: () => Promise<T>): Promise<T> {

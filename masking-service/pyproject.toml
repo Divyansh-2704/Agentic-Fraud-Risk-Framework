@@ -1,0 +1,10 @@
+[project]
+name = "fcms-masking-service"
+version = "1.0.0"
+description = "Presidio masking service: masks personal data before any alert data is sent to an LLM"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "presidio-analyzer==2.2.358",
+  "en-core-web-md @ https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.8.0/en_core_web_md-3.8.0-py3-none-any.whl",
+]
