@@ -33,7 +33,7 @@ function mockMask(data: unknown) {
 }
 
 let maskUp = true
-let llmMode: 'good' | 'ungrounded' | 'bad-then-good' = 'good'
+let llmMode: 'good' | 'ungrounded' | 'bad-then-good' | 'no-credits' | 'bad-key' | 'empty-once' | 'all-down' = 'good'
 let llmCalls: any[] = []
 let realValues: string[] = []
 const servers: Server[] = []
@@ -65,6 +65,11 @@ beforeAll(async () => {
   const llm = express(); llm.use(express.json({ limit: '10mb' }))
   llm.post('/chat/completions', (q, r) => {
     llmCalls.push(q.body)
+    const main = q.body.model === 'anthropic/claude-sonnet-5.5'
+    if (llmMode === 'no-credits' && main) return r.status(402).json({ error: { code: 402, message: 'Insufficient credits. This account never purchased credits.' } })
+    if (llmMode === 'bad-key') return r.status(401).json({ error: { code: 401, message: 'User not found.' } })
+    if (llmMode === 'all-down') return r.status(503).json({ error: { code: 503, message: 'No endpoints available' } })
+    if (llmMode === 'empty-once' && llmCalls.length === 1) return r.json({ choices: [{ finish_reason: 'length', message: { content: '' } }] })
     const prompt = q.body.messages.map((m: any) => m.content).join('\n')
     const leaked = realValues.filter((v) => prompt.includes(v))
     if (leaked.length) return r.status(500).json({ error: { message: `REAL DATA LEAKED TO LLM: ${leaked.join(', ')}` } })
@@ -76,6 +81,7 @@ beforeAll(async () => {
   process.env.OPENROUTER_BASE_URL = await listen(llm)
   process.env.OPENROUTER_API_KEY = 'test-key'
   process.env.AI_AGENT_DISABLED = ''
+  process.env.AI_RETRY_SCALE = '0' // no waiting between retries in tests
 })
 afterAll(async () => {
   process.env.AI_AGENT_DISABLED = '1'
@@ -127,6 +133,46 @@ describe('disposition agent', () => {
     expect(llmCalls).toHaveLength(2)
     expect(llmCalls[1].messages.at(-1).content).toMatch(/failed validation/)
     expect(analysis!.status).toBe('done')
+  })
+
+  it('falls back to the free model when the OpenRouter account has no credits, and says so', async () => {
+    const { id } = await newAlert()
+    llmMode = 'no-credits'
+    const { analysis } = await AI.analyseNow(U('u-aisha'), id)
+    expect(llmCalls.map((c) => c.model)).toEqual(['anthropic/claude-sonnet-5.5', 'baidu/ernie-5.5-flash-preview:free']) // 402 is not retried
+    expect(llmCalls[1].max_tokens).toBeGreaterThanOrEqual(16000) // room for reasoning + answer
+    expect(analysis!.status).toBe('done')
+    expect(analysis!.model).toBe('baidu/ernie-5.5-flash-preview:free')
+    expect(analysis!.result.model_note).toMatch(/no credits.*402/)
+  })
+
+  it('retries an empty or cut-off answer on the same model', async () => {
+    const { id } = await newAlert()
+    llmMode = 'empty-once'
+    const { analysis } = await AI.analyseNow(U('u-aisha'), id)
+    expect(llmCalls.map((c) => c.model)).toEqual(['anthropic/claude-sonnet-5.5', 'anthropic/claude-sonnet-5.5'])
+    expect(analysis!.status).toBe('done')
+    expect(analysis!.result.model_note).toBeUndefined()
+  })
+
+  it('shows a clear error for a rejected API key (no fallback, no retries) and clears an earlier verdict', async () => {
+    const { id } = await newAlert()
+    expect((await AI.analyseNow(U('u-aisha'), id)).analysis!.verdict).toBe('Confirmed Fraud')
+    llmMode = 'bad-key'; llmCalls = []
+    const { analysis } = await AI.analyseNow(U('u-aisha'), id)
+    expect(llmCalls).toHaveLength(1)
+    expect(analysis!.status).toBe('llm_error')
+    expect(analysis!.error).toMatch(/rejected the API key \(401\)/)
+    expect([analysis!.verdict, analysis!.result]).toEqual([null, null])
+  })
+
+  it('reports both models when the main and fallback models are down after retries', async () => {
+    const { id } = await newAlert()
+    llmMode = 'all-down'
+    const { analysis } = await AI.analyseNow(U('u-aisha'), id)
+    expect(llmCalls).toHaveLength(6) // 3 attempts each
+    expect(analysis!.status).toBe('llm_error')
+    expect(analysis!.error).toMatch(/error 503 for anthropic\/claude-sonnet-5.5.*fallback model failed too.*ernie/)
   })
 
   it('fails closed: nothing is sent to the LLM when masking is unavailable', async () => {

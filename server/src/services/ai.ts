@@ -13,8 +13,10 @@ import { all, get, getConfig, insert, json, nowIso, outsideTx, run, type Row } f
 import { PROMPT_VERSION, RESPONSE_SCHEMA, SYSTEM_PROMPT, userPrompt, VERDICTS, type Verdict } from './aiPrompt.js'
 import { bad, canSeeAlert, forbidden, hasRole, notFound } from './common.js'
 
-export interface AiConfig { enabled: boolean; autoAnalyse: boolean; model: string; reasoningEffort: 'none' | 'low' | 'medium' | 'high' }
-export const AI_DEFAULTS: AiConfig = { enabled: true, autoAnalyse: true, model: 'anthropic/claude-sonnet-5.5', reasoningEffort: 'medium' }
+export interface AiConfig { enabled: boolean; autoAnalyse: boolean; model: string; fallbackModel: string; reasoningEffort: 'none' | 'low' | 'medium' | 'high' }
+// fallbackModel answers when the main model cannot (no OpenRouter credits, model unavailable, rate limit after retries).
+// Default: a free OpenRouter model, so the prototype works on a free-tier key; '' switches the fallback off.
+export const AI_DEFAULTS: AiConfig = { enabled: true, autoAnalyse: true, model: 'anthropic/claude-sonnet-5.5', fallbackModel: 'baidu/ernie-5.5-flash-preview:free', reasoningEffort: 'medium' }
 const aiConfig = (): AiConfig => ({ ...AI_DEFAULTS, ...getConfig<Partial<AiConfig>>('aiAgent', {}) })
 
 const OPENROUTER_BASE = () => (process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1').replace(/\/$/, '')
@@ -142,10 +144,18 @@ export function unmask<T>(value: T, mapping: Record<string, string>): T {
 
 // ---------------------------------------------------------------- LLM call (OpenRouter)
 class AiError extends Error { constructor(public code: 'not_configured' | 'masking_unavailable' | 'llm_error' | 'invalid_output', message: string) { super(message) } }
+/** An OpenRouter failure, classified: retryable (try the same model again) and/or worth trying the fallback model. */
+class LlmError extends AiError {
+  constructor(message: string, public httpStatus: number | null, public retryable: boolean, public tryFallback: boolean) { super('llm_error', message) }
+}
 
 interface LlmReply { content: string; model: string; usage: unknown }
-async function callOpenRouter(messages: { role: string; content: string }[], cfg: AiConfig, structured: boolean): Promise<LlmReply> {
-  const body: Record<string, unknown> = { model: cfg.model, messages, max_tokens: 6000 }
+// AI_RETRY_SCALE=0 makes the tests skip the waits.
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms * Number(process.env.AI_RETRY_SCALE ?? 1)))
+
+async function callOpenRouter(messages: { role: string; content: string }[], model: string, cfg: AiConfig, structured: boolean): Promise<LlmReply> {
+  // The output budget includes the model's hidden reasoning, so it must be well above the ~2k tokens of the answer.
+  const body: Record<string, unknown> = { model, messages, max_tokens: 16_000 }
   if (structured) {
     body.response_format = { type: 'json_schema', json_schema: { name: 'alert_disposition', strict: true, schema: RESPONSE_SCHEMA } }
     body.provider = { require_parameters: true }
@@ -159,12 +169,57 @@ async function callOpenRouter(messages: { role: string; content: string }[], cfg
       headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json', 'X-Title': 'Agentic Fraud Risk Framework (prototype)' },
       body: JSON.stringify(body), signal: AbortSignal.timeout(180_000),
     })
-  } catch (e: any) { throw new AiError('llm_error', `OpenRouter unreachable: ${e?.message ?? e}`) }
+  } catch (e: any) { throw new LlmError(`OpenRouter unreachable or too slow (${e?.name === 'TimeoutError' ? 'timed out after 3 minutes' : e?.message ?? e}).`, null, true, true) }
   const data: any = await res.json().catch(() => ({}))
-  if (!res.ok || data.error) throw new AiError('llm_error', `OpenRouter ${res.status}: ${data.error?.message ?? 'request failed'}`)
-  const content = data.choices?.[0]?.message?.content
-  if (typeof content !== 'string' || !content.trim()) throw new AiError('llm_error', 'OpenRouter returned an empty answer.')
-  return { content, model: data.model ?? cfg.model, usage: data.usage ?? null }
+  if (!res.ok || data.error) {
+    const status = Number(res.ok ? data.error?.code ?? 502 : res.status) || 502
+    const detail = String(data.error?.message ?? 'request failed').slice(0, 300)
+    if (status === 402) throw new LlmError(`The OpenRouter account has no credits for ${model} (402). Add credits at openrouter.ai/settings/credits, or choose a free model (name ending in ":free") on the Configuration page.`, 402, false, true)
+    if (status === 401) throw new LlmError('OpenRouter rejected the API key (401). Check OPENROUTER_API_KEY in the server settings.', 401, false, false)
+    if (status === 404) throw new LlmError(`OpenRouter does not offer the model "${model}" (404). Check the model name on the Configuration page.`, 404, false, true)
+    if (status === 403) throw new LlmError(`OpenRouter refused the request for ${model} (403): ${detail}`, 403, false, true)
+    if (status === 429) throw new LlmError(`${model} is rate-limited right now (429). ${detail}`, 429, true, true)
+    if (status === 400) throw new LlmError(`OpenRouter could not process the request for ${model} (400): ${detail}`, 400, false, false)
+    throw new LlmError(`OpenRouter error ${status} for ${model}: ${detail}`, status, true, true)
+  }
+  const choice = data.choices?.[0]
+  const content = choice?.message?.content
+  if (choice?.finish_reason === 'length') throw new LlmError(`${model} ran out of output space before finishing its answer.`, null, true, true)
+  if (typeof content !== 'string' || !content.trim()) throw new LlmError(`${model} returned an empty answer.`, null, true, true)
+  return { content, model, usage: data.usage ?? null }
+}
+
+/**
+ * Asks the main model; temporary failures are retried (after 2 s, then 6 s). If the main model cannot answer
+ * (no credits, unknown model, still failing) the fallback model is asked the same way. Some providers reject
+ * structured outputs (400): then the same model is asked again with the schema in the prompt only.
+ */
+async function askModel(messages: { role: string; content: string }[], cfg: AiConfig): Promise<LlmReply & { fallbackReason: string | null }> {
+  const models = [cfg.model, ...(cfg.fallbackModel && cfg.fallbackModel !== cfg.model ? [cfg.fallbackModel] : [])]
+  let firstError: LlmError | null = null
+  let lastError: LlmError | null = null
+  for (const model of models) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        let reply: LlmReply
+        try { reply = await callOpenRouter(messages, model, cfg, true) } catch (e) {
+          if (!(e instanceof LlmError) || e.httpStatus !== 400) throw e
+          reply = await callOpenRouter(messages, model, { ...cfg, reasoningEffort: 'none' }, false)
+        }
+        return { ...reply, fallbackReason: model === cfg.model ? null : firstError?.message ?? null }
+      } catch (e) {
+        if (!(e instanceof LlmError)) throw e
+        lastError = e
+        if (e.retryable && attempt < 2) { await sleep(attempt === 0 ? 2000 : 6000); continue }
+        break
+      }
+    }
+    if (!firstError) firstError = lastError
+    if (!lastError!.tryFallback) break
+  }
+  // Report the main model's problem (that is what needs fixing), plus the fallback's if it failed too.
+  const last = lastError!
+  throw new LlmError(firstError && firstError !== last ? `${firstError.message} The fallback model failed too: ${last.message}` : last.message, last.httpStatus, false, false)
 }
 
 // ---------------------------------------------------------------- validation + grounding
@@ -173,6 +228,7 @@ export interface AiResult {
   verdict: Verdict; confidence: number; summary: string; suggested_sub_classification: string; evidence: Evidence[]
   red_flags: string[]; mitigating_factors: string[]; missing_information: string[]; recommended_next_steps: string[]; draft_rationale: string
   guardrail_notes?: string[]
+  model_note?: string
 }
 
 function parseJson(text: string): unknown {
@@ -271,20 +327,18 @@ export async function analyseAlert(alertId: string, actor = 'system') {
     const m = await maskWithPresidio(context)
     const ref = referenceIndex(m.masked)
     const messages = [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: userPrompt(m.masked) }]
-    let reply: LlmReply
-    try { reply = await callOpenRouter(messages, cfg, true) } catch (e) {
-      // Some providers reject structured outputs or reasoning: retry once with the schema in the prompt only.
-      if (!(e instanceof AiError) || e.code !== 'llm_error') throw e
-      reply = await callOpenRouter(messages, { ...cfg, reasoningEffort: 'none' }, false)
-    }
+    let reply = await askModel(messages, cfg)
+    const fallbackReason = reply.fallbackReason
     let parsed: any, errors: string[]
     try { parsed = parseJson(reply.content); errors = validateShape(parsed) } catch { errors = ['The answer was not valid JSON.'] }
     if (errors.length) { // one repair attempt
-      reply = await callOpenRouter([...messages, { role: 'assistant', content: reply.content }, { role: 'user', content: `Your answer failed validation:\n- ${errors.join('\n- ')}\nReturn the corrected JSON object only.` }], cfg, true)
+      // Ask the model that answered (main or fallback) to correct itself.
+      reply = { ...await askModel([...messages, { role: 'assistant', content: reply.content }, { role: 'user', content: `Your answer failed validation:\n- ${errors.join('\n- ')}\nReturn the corrected JSON object only.` }], { ...cfg, model: reply.model, fallbackModel: '' }), fallbackReason }
       try { parsed = parseJson(reply.content); errors = validateShape(parsed) } catch { errors = ['The answer was not valid JSON.'] }
       if (errors.length) throw new AiError('invalid_output', `The model's answer did not match the required format: ${errors.slice(0, 3).join(' ')}`)
     }
     const guarded = applyGuardrails(parsed as AiResult, ref)
+    if (fallbackReason) guarded.model_note = `Answered by the fallback model ${reply.model} because the main model ${cfg.model} could not be used. ${fallbackReason}`
     const result = unmask(guarded, m.mapping)
     await saveRow(alertId, {
       status: 'done', verdict: result.verdict, confidence: result.confidence, model: reply.model, prompt_version: PROMPT_VERSION,
@@ -295,7 +349,8 @@ export async function analyseAlert(alertId: string, actor = 'system') {
   } catch (e: any) {
     const code = e instanceof AiError ? e.code : 'failed'
     if (!(e instanceof AiError)) console.error(`AI analysis of ${alertId} failed:`, e)
-    await saveRow(alertId, { status: code, error: String(e?.message ?? e), finished_at: nowIso(), duration_ms: Date.now() - started, model: cfg.model, prompt_version: PROMPT_VERSION })
+    // Clear any earlier verdict, so a failed re-analysis never shows an old result next to an error.
+    await saveRow(alertId, { status: code, error: String(e?.message ?? e), verdict: null, confidence: null, result: null, masked_output: null, finished_at: nowIso(), duration_ms: Date.now() - started, model: cfg.model, prompt_version: PROMPT_VERSION })
     if (code !== 'not_configured') await insert('agent_runs', { agent_id: 'disposition', ts: nowIso(), actor, target_type: 'alert', target_id: alertId, tool_calls: JSON.stringify(tools), output: String(e?.message ?? e).slice(0, 300), status: code })
   }
   return getAnalysisRow(alertId)

@@ -14,7 +14,7 @@ const STATUS_TEXT: Record<string, string> = {
 const STATUS_HELP: Record<string, string> = {
   not_configured: 'The AI agent is ready but has no OpenRouter API key yet. Add OPENROUTER_API_KEY to the server settings, then run the analysis.',
   masking_unavailable: 'The Presidio masking service could not be reached or its check failed, so nothing was sent to the LLM. Try again when the service is running.',
-  llm_error: 'The LLM call failed. Try again; if it keeps failing, check the model and API key on the Configuration page.',
+  llm_error: 'The LLM call failed.',
   invalid_output: 'The model answered in a format that could not be validated, so it was discarded. Try again.',
   failed: 'The analysis failed unexpectedly. Try again.',
 }
@@ -71,12 +71,13 @@ export function AiVerdictRail({ alertId }: { alertId: string }) {
           <Confidence value={a.confidence} tone={TONE[a.verdict as Verdict]} />
           <p style={{ margin: 0, color: 'var(--text)', fontSize: 13 }}>{r.summary}</p>
           {r.guardrail_notes?.length > 0 && <div className="small" style={{ color: 'var(--orange-700)' }}>⚠ {r.guardrail_notes[0]}</div>}
+          {r.model_note && <div className="small muted">Answered by the fallback model {a.model}.</div>}
           <div className="row between"><a href="#ai">Evidence ({r.evidence.length}) ↓</a><RunButton alertId={alertId} label="Re-analyse" /></div>
         </div>
       ) : (
         <div className="stack" style={{ gap: 8, marginTop: 8 }}>
           <p style={{ margin: 0 }}>{!a ? 'This alert has not been analysed yet.' : STATUS_TEXT[a.status] ?? a.status}{a?.status === 'running' && <> · started {fmtDateTime(a.started_at)}</>}</p>
-          {a?.error && <p className="small" style={{ margin: 0, color: 'var(--orange-700)' }}>{STATUS_HELP[a.status] ?? a.error}</p>}
+          {a?.error && <p className="small" style={{ margin: 0, color: 'var(--orange-700)' }}>{a.status === 'llm_error' || !STATUS_HELP[a.status] ? a.error : STATUS_HELP[a.status]}</p>}
           {!q.busy && <RunButton alertId={alertId} label="Analyse now" primary />}
         </div>
       )}
@@ -116,6 +117,7 @@ export function AiVerdictCard({ alertId }: { alertId: string }) {
     <Card id="ai" title={<span>✦ AI recommendation: <Badge tone={TONE[a.verdict as Verdict]}>{a.verdict}</Badge> <span className="small muted">{a.confidence}% confidence</span></span>}
       actions={<button className="btn btn-sm btn-ghost" onClick={() => setAudit(true)}>What the model saw</button>}>
       <p style={{ marginTop: 0 }}>{r.summary}</p>
+      {r.model_note && <div className="alert-box info" style={{ marginBottom: 12 }}><div>{r.model_note}</div></div>}
       {r.guardrail_notes?.length > 0 && <div className="alert-box warn" style={{ marginBottom: 12 }}><div>{r.guardrail_notes.map((n: string, i: number) => <div key={i}>{n}</div>)}</div></div>}
       <div className="kpi-label" style={{ marginBottom: 6 }}>Evidence: check each point against the records</div>
       <div className="stack" style={{ gap: 8 }}>
