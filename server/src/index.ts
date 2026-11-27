@@ -2,8 +2,9 @@
 // (routes live in routes.ts so that Vercel's entry-file lookup cannot pick the wrong file).
 import express from 'express'
 import { createApp } from './routes.js'
-import { advisoryLock, DATABASE_URL, dbInfo, get, initDb, LOCKS, NOT_CONFIGURED, tx } from './db.js'
-import { seedAll } from './seed.js'
+import { advisoryLock, DATABASE_URL, dbInfo, get, initDb, LOCKS, NOT_CONFIGURED, refreshCache, tx } from './db.js'
+import { kick as kickAiQueue } from './services/ai.js'
+import { migrateConfig, seedAll } from './seed.js'
 
 const hasUsers = async () => !!(await get('SELECT 1 AS x FROM users LIMIT 1'))
 
@@ -17,7 +18,7 @@ function ensureSeeded(): Promise<void> {
     ready = (async () => {
       if (!DATABASE_URL) throw new Error(NOT_CONFIGURED)
       await initDb()
-      if (await hasUsers()) return
+      if (await hasUsers()) { await refreshCache(); await migrateConfig(); return }
       await tx(async () => {
         await advisoryLock(LOCKS.seed)
         if (!(await hasUsers())) { console.log('Database is empty: seeding demo data...'); await seedAll() }
@@ -53,4 +54,8 @@ if (!process.env.VERCEL) {
   const port = Number(process.env.PORT ?? 4000)
   void ensureSeeded().then(() => console.log(`Database: ${dbInfo()}`), () => {})
   app.listen(port, () => console.log(`FCMS API listening on http://localhost:${port}`))
+  // Keep working through the AI queue (alerts queued while the server was down or by another instance).
+  // On Vercel the queue is drained by the request that queued the work (waitUntil) and by POST /api/ai/process.
+  const tickAi = () => ensureSeeded().then(refreshCache).then(() => kickAiQueue()).catch(() => {})
+  setInterval(tickAi, 30_000).unref()
 }

@@ -1,10 +1,11 @@
 // Seeds bank-style synthetic data and replays real workflows (through the same services the API uses),
 // so every case has a genuine audit trail. Run: npm run seed
 import type { User } from '../../shared/src/index.js'
-import { advisoryLock, all, clearCache, closeDb, dbInfo, exec, freezeCache, get, initDb, insert, LOCKS, nowIso, refreshCache, setCachedUsers, setClock, setConfig, TABLES, tx, update } from './db.js'
+import { advisoryLock, all, clearCache, closeDb, dbInfo, exec, freezeCache, get, getConfig, initDb, insert, LOCKS, nowIso, refreshCache, setCachedUsers, setClock, setConfig, TABLES, tx, update } from './db.js'
 import { DEFAULT_ROUTING_RULES } from './workflow/routing.js'
 import { AGENTS } from '../../shared/src/index.js'
 import * as A from './services/alerts.js'
+import { AI_DEFAULTS } from './services/ai.js'
 import * as C from './services/cases.js'
 import { getUser } from './services/common.js'
 import { seedScenarios } from './scenarios.js'
@@ -24,7 +25,18 @@ export async function resetDb() {
   clearCache()
 }
 
+/** Config schema version. Older databases (seeded before balanced allocation / the AI agent) are upgraded on start. */
+const CONFIG_VERSION = 2
+export async function migrateConfig() {
+  if (Number(getConfig('configVersion', 1)) >= CONFIG_VERSION) return
+  // v2: balanced auto-allocation of every new alert (detection too) and the AI disposition agent settings.
+  await setConfig('autoAllocate', { prevention: true, detection: true })
+  if (!getConfig('aiAgent', null)) await setConfig('aiAgent', AI_DEFAULTS)
+  await setConfig('configVersion', CONFIG_VERSION)
+}
+
 export async function seedConfig() {
+  await setConfig('configVersion', CONFIG_VERSION)
   await setConfig('routingRules', DEFAULT_ROUTING_RULES)
   await setConfig('afsThresholdAed', 10000) // "X" (FR-CASE-035), editable by FP&I
   await setConfig('slaMinutes', { Prevention: 30, High: 48 * 60, Medium: 96 * 60, Low: 168 * 60 })
@@ -36,7 +48,8 @@ export async function seedConfig() {
   await setConfig('eddAlertDays', 8)
   await setConfig('archiveDays', 90)
   await setConfig('reminderDays', 10)
-  await setConfig('autoAllocate', { prevention: true, detection: false })
+  await setConfig('autoAllocate', { prevention: true, detection: true }) // balanced auto-allocation on arrival (allocation.ts)
+  await setConfig('aiAgent', AI_DEFAULTS) // Disposition agent (ai.ts): model, pre-analysis on arrival
   await setConfig('holidays', ['2026-12-02', '2026-12-03', '2026-12-25', '2027-01-01'])
   await setConfig('scenarios', {
     'SC-101': { dept: 'FRAUD_OPS', complexity: 'High' }, 'SC-102': { dept: 'FRAUD_OPS', complexity: 'High' }, 'SC-205': { dept: 'FRAUD_OPS', complexity: 'Medium' },
@@ -171,6 +184,12 @@ async function seedEverything() {
   await seedConfig()
   await seedUsers()
   const custs = await seedCustomers()
+  // The demo backlog is replayed with its historical states: detection alerts stay in the shared queue until picked
+  // (as before the balanced allocation existed) and nothing is sent to the AI agent. Both switch on at the end, so
+  // every alert that arrives after seeding is auto-allocated and pre-analysed. Run a Rebalance / AI backfill to apply
+  // them to the backlog.
+  await setConfig('autoAllocate', { prevention: true, detection: false })
+  await setConfig('aiAgent', { ...AI_DEFAULTS, autoAnalyse: false })
 
   // ---- 1. Open detection alerts in the queues (FAMS landing) ----
   for (let i = 0; i < 26; i++) {
@@ -330,6 +349,8 @@ async function seedEverything() {
   setClock(null)
   await A.sweepAlerts()
   await C.sweepCases()
+  await setConfig('autoAllocate', { prevention: true, detection: true })
+  await setConfig('aiAgent', AI_DEFAULTS)
 }
 
 /** Rebuilds all demo data in one transaction: other users never see a half-seeded database, and the advisory lock stops two server instances seeding at once. */

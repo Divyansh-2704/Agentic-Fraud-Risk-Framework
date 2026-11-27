@@ -1,0 +1,22 @@
+# Merchants, billers and institutions: business names, not personal data, so they are never masked.
+# One per line (case-insensitive). In production this comes from the merchant / biller master (MCC data).
+Carrefour
+DEWA
+Etisalat
+du
+Noon.com
+Amazon AE
+Air Arabia
+Emirates
+flydubai
+ADNOC
+ENOC
+Lulu Hypermarket
+Western Union
+Al Futtaim
+ACME LLC
+Crypto Exchange XT
+Global Invest FX
+Talabat
+Careem
+Salik

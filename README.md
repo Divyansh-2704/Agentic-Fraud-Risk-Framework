@@ -45,8 +45,19 @@ TEST_DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/fraud_detec
 cd fraud-framework
 npm install
 npm run db:setup     # creates fraud_detection + fraud_detection_test (if missing), the tables, and the demo data
-npm run dev          # API on http://localhost:4000, UI on http://localhost:5173
+npm run dev          # API on http://localhost:4000, UI on http://localhost:5173, Presidio masking service on :5055
 ```
+
+**3. AI agent (optional).** The AI disposition agent needs Python 3.12 for the Presidio masking service and an OpenRouter key:
+
+```powershell
+python -m venv masking-service/.venv
+masking-service/.venv/Scripts/pip install -r masking-service/requirements.txt uvicorn
+# in .env:  OPENROUTER_API_KEY=sk-or-...   (and MASKING_PYTHON=<path to python> if the venv is elsewhere)
+npm run ai:backfill  # one-off: analyse the alerts that already exist (new alerts are analysed on arrival)
+```
+
+Without Python, `npm run dev` still starts the app; the AI panel then says the masking service is unavailable and nothing is sent to the LLM.
 
 | Command | What it does |
 |---|---|
@@ -57,6 +68,8 @@ npm run dev          # API on http://localhost:4000, UI on http://localhost:5173
 | `npm run test:ui` | UI tests only (Playwright) |
 | `npm run test-guide` | Rebuilds `docs/Agentic-Fraud-Test-Scenarios.xlsx` from the scenario catalogue |
 | `npm run typecheck` / `npm run build` | Type check / production build |
+| `npm run dev:masking` | Presidio masking service only (port 5055) |
+| `npm run ai:backfill` | Analyses every open alert without an AI result (`-- --all` adds closed alerts, `-- --force` re-analyses) |
 
 `GET /api/health` reports the database server and name the API is using (no credentials) and how many users it holds.
 
@@ -168,14 +181,30 @@ The seed drives every case through the **same services the API uses**, so the au
 | Outlook | `outbox` table. Users see mail to them and to their team mailbox (fraud.ops@, fpi.team@, hr.governance@) |
 | Maktaba | Link by reference |
 
-## Next phase: the agent layer
+## Alert allocation (balanced)
 
-The Excel notes ask for "Agent: tool call" and "Gen AI: Q&A". The hooks are in place:
+Every new alert (prevention and detection) is assigned when it arrives (`server/src/services/allocation.ts`), to an analyst with the right department and entity access:
 
-- `GET /api/agents` returns the registry and the planned tool calls for each agent.
-- `POST /api/agents/:id/run` and `POST /api/assistant/ask` return **501** today. They are where the Claude tool-use loop plugs in.
-- The agents will use read-only tools scoped by the user's Chinese-wall access. Runs will be logged to `agent_runs`.
-- Every agent recommends or drafts only. A person decides, and maker-checker is unchanged.
+1. **Equal totals:** the analyst with the fewest open alerts (existing + new).
+2. **Priority mix:** on a tie, the fewest open alerts of the same priority (High / Medium / Low).
+3. **Typology mix:** still tied, the fewest of the same fraud typology.
+
+Alerts of one customer stay with one analyst, so they can still be decided together (FR-ALT-011). **Rebalance workload** on the alert queue (Fraud Ops Manager / Super User) previews, then redistributes, every open alert nobody has started (no decision, action, note, edit or evidence yet); a swap pass then evens out the priority and typology mix without changing totals. Switch auto-allocation per category under Configuration.
+
+## AI disposition agent (#4)
+
+For every new alert, the agent recommends **Confirmed Fraud**, **False Positive** or **Inconclusive**, with a confidence and the evidence behind it (`server/src/services/ai.ts`, prompt in `aiPrompt.ts`).
+
+1. It collects the alert, customer KYC (date of birth becomes an age band), 90 days of transactions with baselines, beneficiary history, earlier alerts and cases, alerts sharing the device or beneficiary, and the rule's precision. The alert's own decision is never sent.
+2. The **Presidio masking service** (`masking-service/main.py`) replaces every name, CIF, IBAN, Emirates ID, passport, card, device and transaction ID with a consistent placeholder (`<PERSON_1>`, `<IBAN_GB_2>`...). Known PII fields are always masked; free text goes through Presidio (spaCy + bank/UAE recognizers + the names already found). Merchants in `known_counterparties.txt` are kept. The placeholder table never leaves the Node server.
+3. **Fails closed:** if masking is unavailable, or any known real value is still in the masked JSON, nothing is sent.
+4. The masked JSON goes to **OpenRouter** (default `anthropic/claude-sonnet-5.5`, set under Configuration) with a strict JSON schema. Invalid answers get one repair attempt.
+5. **Grounding:** every evidence item must cite record IDs or field paths that exist in the data; a Confirmed Fraud / False Positive without two verified, non-weak supporting items is downgraded to Inconclusive.
+6. Placeholders are swapped back to real values for the analyst only. The alert page shows the verdict, evidence with sources, gaps, next steps and a draft rationale, plus **What the model saw** (the masked request and answer, for audit). The queue has an **AI verdict** column.
+
+The agent only recommends: the analyst still decides, and maker-checker is unchanged. Runs are logged to `agent_runs`; results live in `ai_analyses`. Tests never call a real LLM (`AI_AGENT_DISABLED=1`); `server/test/ai.test.ts` uses mock services, and `MASKING_IT=1 npx vitest run test/masking-integration.test.ts` runs every seeded alert through the real Presidio service and checks that no real value reaches the (mock) LLM.
+
+The other eleven agents are still the registry and tool contract (`GET /api/agents`); `POST /api/assistant/ask` returns 501.
 
 ## Deploy on Vercel (PostgreSQL)
 
@@ -193,6 +222,7 @@ Notes:
 - SSL is switched on automatically for non-local servers, with certificate checks. Add `?sslmode=no-verify` to the URL only for a provider whose certificate Node.js does not trust.
 - To reset the hosted demo data, switch to the System Administrator and use **Scenarios > Reset demo data** (it re-seeds on Vercel, next to the database). Running `npm run seed` from a laptop against a far-away cloud database works but is slow (thousands of round trips).
 - Without `DATABASE_URL` the hosted API answers 503 with a message that says what to configure.
+- **AI agent on Vercel:** `vercel.json` deploys `masking-service/` as a third, private Python service (FastAPI + Presidio + spaCy `en_core_web_md`, ~360 MB, within Vercel's 500 MB Python limit). It has no public route; the Express service reaches it through a service binding that injects `MASKING_URL`. Add **`OPENROUTER_API_KEY`** under Project > Settings > Environment Variables (Production + Preview) and redeploy. New alerts are analysed in the background of the request that created them (`waitUntil`); for the existing backlog, open **Agent hub > Analyse all open alerts** as the manager and keep the page open (it continues the queue every few seconds, since each Vercel request has a time limit).
 
 ## Known limitations
 

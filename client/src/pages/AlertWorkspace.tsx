@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ALERT_SUBCLASS, PRECAUTION_CATALOGUE, PREVENTION_DECISIONS } from '../../../shared/src/index'
 import { api, useAct, useApi } from '../api'
-import { AiAssist } from '../components/AiAssist'
+import { AiVerdictCard, AiVerdictRail } from '../components/AiVerdict'
 import { EvidenceUpload } from '../components/Evidence'
 import { hasRole, useMe } from '../components/Layout'
 import { Badge, Card, CommentModal, DataTable, ErrorBox, Field, fmtAed, fmtDate, fmtDateTime, fmtDur, Loading, Modal, PreventionChip, PriorityBadge, Select, StatusBadge } from '../components/ui'
@@ -31,11 +31,12 @@ export function AlertWorkspace() {
       </div>
       <div className="ws">
         <nav className="sidepanel card card-pad" aria-label="Alert sections">
-          {[['alert', 'Alert record'], ['customer', 'Customer'], ['history', `Last ${d.history.length} alerts`], ['txns', 'Transactions (3 months)'], ['accounts', 'Other accounts'], ['steps', 'Precautionary steps'], ['notes', 'Notes & references'], ['evidence', 'Evidence'], ['activity', 'Activity & emails']].map(([k, l]) => <a key={k} href={`#${k}`}>{l}</a>)}
+          {[['ai', 'AI recommendation'], ['alert', 'Alert record'], ['customer', 'Customer'], ['history', `Last ${d.history.length} alerts`], ['txns', 'Transactions (3 months)'], ['accounts', 'Other accounts'], ['steps', 'Precautionary steps'], ['notes', 'Notes & references'], ['evidence', 'Evidence'], ['activity', 'Activity & emails']].map(([k, l]) => <a key={k} href={`#${k}`}>{l}</a>)}
         </nav>
         <div className="stack">
           {a.dq_exceptions.length > 0 && <div className="alert-box warn"><b>Data quality exception:</b> missing {a.dq_exceptions.join(', ')} (FR-ALT-03)</div>}
           {d.sameCustomerOpen.length > 0 && <div className="alert-box info">{d.sameCustomerOpen.length} other open alert(s) for this customer: {d.sameCustomerOpen.map((x: any) => <Link key={x.id} to={`/alerts/${x.id}`} className="mono" style={{ marginRight: 8 }}>{x.id}</Link>)}. You can decide them together (FR-ALT-011).</div>}
+          <AiVerdictCard alertId={a.id} />
           <AlertRecord d={d} />
           <Card title="Customer" id="customer">
             {d.customer ? (
@@ -77,7 +78,7 @@ export function AlertWorkspace() {
         </div>
         <div className="stack rail">
           <ActionPanel d={d} meta={meta.data} />
-          <AiAssist surface={a.category === 'Prevention' ? 'prevention' : 'alert'} compact />
+          <AiVerdictRail alertId={a.id} />
         </div>
       </div>
     </>

@@ -36,9 +36,9 @@ export async function download(path: string, filename: string) {
 }
 
 /** Query scoped to the current user (cache is cleared when the user switches). */
-export function useApi<T = any>(path: string | null, opts: { refetchInterval?: number } = {}) {
+export function useApi<T = any>(path: string | null, opts: { refetchInterval?: number | false | ((query: { state: { data: T | undefined } }) => number | false) } = {}) {
   return useQuery<T>({
-    queryKey: [getUserId(), path], queryFn: () => api<T>(path!), enabled: !!path, refetchInterval: opts.refetchInterval,
+    queryKey: [getUserId(), path], queryFn: () => api<T>(path!), enabled: !!path, refetchInterval: opts.refetchInterval as any,
     // A refusal from the server (403 Chinese wall, 404 not found...) will not change on retry: fetch once and show the message.
     retry: (n, e: any) => !(e instanceof ApiError && e.status >= 400 && e.status < 500) && n < 2,
   })

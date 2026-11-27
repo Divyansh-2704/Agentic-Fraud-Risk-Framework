@@ -9,7 +9,8 @@
   ],
   "scripts": {
     "seed": "npm run seed -w server",
-    "dev": "npm-run-all --parallel dev:server dev:client",
+    "dev": "npm-run-all --parallel dev:server dev:client dev:masking",
+    "dev:masking": "node scripts/masking-service.mjs",
     "dev:server": "npm run dev -w server",
     "dev:client": "npm run dev -w client",
     "test": "npm run test -w server",
@@ -18,6 +19,7 @@
     "test-guide": "tsx scripts/build-test-guide.ts",
     "db:setup": "npm run db:setup -w server",
     "test:ui": "playwright test",
+    "ai:backfill": "npm run ai:backfill -w server",
     "test:all": "powershell -ExecutionPolicy Bypass -File scripts/run-all-tests.ps1"
   },
   "devDependencies": {

@@ -8,6 +8,7 @@ const CONFIG_LABELS: Record<string, string> = {
   routingRules: 'Case routing table', afsThresholdAed: 'Advance Fee Scam threshold X', slaMinutes: 'Alert SLA', caseSlaDays: 'Case SLA',
   maxReschedules: 'Maximum re-schedules', rescheduleHours: 'Re-schedule delay', historyAlerts: 'Historical alerts shown', txnMonths: 'Transaction history window',
   eddAlertDays: 'EDD notification threshold', archiveDays: 'Archive period', reminderDays: 'Calendar reminder period', holidays: 'Holiday list',
+  autoAllocate: 'Auto-allocation', aiAgent: 'AI agent settings',
 }
 
 /** Parameterised rules (routing table FR-CASE-035, the "X" threshold, SLAs, re-schedule limits, etc.). */
@@ -15,6 +16,7 @@ export function ConfigPage() {
   const me = useMe()
   const act = useAct()
   const q = useApi<any>('/config')
+  const ai = useApi<any>('/ai/status')
   const [cfg, setCfg] = useState<any>(null)
   useEffect(() => { if (q.data) setCfg(structuredClone(q.data)) }, [q.data])
   if (q.isLoading || !cfg) return <Loading />
@@ -77,6 +79,38 @@ export function ConfigPage() {
           </Card>
           <Card title="Alert type → pre-filled precautionary steps (FR-ALT-021)">
             <table className="tbl"><tbody>{Object.entries(cfg.precautionMapping).map(([k, v]: any) => <tr key={k}><td style={{ width: 170 }}><b>{k === '*' ? 'Default' : k}</b></td><td className="small">{v.join(' · ')}</td></tr>)}</tbody></table>
+          </Card>
+        </div>
+        <div className="grid g2">
+          <Card title="Alert allocation on arrival (FR-ALT-047/048)" actions={isSuper && <button className="btn btn-sm btn-primary" onClick={() => save('autoAllocate')}>Save</button>}>
+            <div className="stack" style={{ gap: 6 }}>
+              {(['prevention', 'detection'] as const).map((k) => (
+                <label key={k} className="check"><input type="checkbox" disabled={!isSuper} checked={!!cfg.autoAllocate?.[k]} onChange={(e) => setCfg({ ...cfg, autoAllocate: { ...cfg.autoAllocate, [k]: e.target.checked } })} /> Auto-allocate {k} alerts when they arrive</label>
+              ))}
+              <div className="small muted">Balanced rules: the analyst with the fewest open alerts first, then the fewest of the same priority, then the fewest of the same fraud typology. Alerts of one customer stay with one analyst. Managers can redistribute unstarted alerts with Rebalance workload on the alert queue.</div>
+            </div>
+          </Card>
+          <Card title="AI disposition agent" actions={isSuper && <button className="btn btn-sm btn-primary" onClick={() => save('aiAgent')}>Save</button>}>
+            {(() => {
+              const v = { enabled: true, autoAnalyse: true, model: 'anthropic/claude-sonnet-5.5', reasoningEffort: 'medium', ...(cfg.aiAgent ?? {}) }
+              const set = (patch: object) => setCfg({ ...cfg, aiAgent: { ...v, ...patch } })
+              const st = ai.data
+              return (
+                <div className="stack" style={{ gap: 8 }}>
+                  <label className="check"><input type="checkbox" disabled={!isSuper} checked={v.enabled} onChange={(e) => set({ enabled: e.target.checked })} /> AI agent switched on</label>
+                  <label className="check"><input type="checkbox" disabled={!isSuper} checked={v.autoAnalyse} onChange={(e) => set({ autoAnalyse: e.target.checked })} /> Analyse every new alert when it arrives</label>
+                  <div className="row" style={{ alignItems: 'flex-end' }}>
+                    <Field label="OpenRouter model"><input className="input" style={{ width: 280 }} list="ai-models" disabled={!isSuper} value={v.model} onChange={(e) => set({ model: e.target.value.trim() })} /></Field>
+                    <datalist id="ai-models">{['anthropic/claude-sonnet-5.5', 'anthropic/claude-opus-5.5', 'anthropic/claude-haiku-5.5'].map((m) => <option key={m} value={m} />)}</datalist>
+                    <Field label="Reasoning effort"><Select disabled={!isSuper} value={v.reasoningEffort} placeholder="" onChange={(x) => set({ reasoningEffort: x })} options={['none', 'low', 'medium', 'high'].map((x) => ({ value: x, label: x }))} /></Field>
+                  </div>
+                  {st && <div className="small">
+                    <div>API key: {st.state.configured ? <b style={{ color: 'var(--ok)' }}>set</b> : <b style={{ color: 'var(--orange-700)' }}>missing: add OPENROUTER_API_KEY to the server settings</b>}</div>
+                    <div>Presidio masking service: {st.masking.ok ? <b style={{ color: 'var(--ok)' }}>running ({st.masking.spacy_model})</b> : <b style={{ color: 'var(--orange-700)' }}>not reachable: nothing is sent to the LLM until it runs</b>}</div>
+                  </div>}
+                </div>
+              )
+            })()}
           </Card>
         </div>
         <Card title="Holidays excluded from TAT (FR-CASE-0142)" actions={isSuper && <button className="btn btn-sm btn-primary" onClick={() => save('holidays')}>Save</button>}>

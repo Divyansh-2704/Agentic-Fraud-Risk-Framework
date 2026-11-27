@@ -44,7 +44,10 @@ describe('full fraud lifecycle over the API', () => {
     // HR cannot work a Fraud Ops alert (Chinese wall / dept queue)
     expect((await call('u-daniel', 'GET', `/alerts/${alertId}`)).status).toBe(403)
 
-    await ok('u-omar', 'POST', '/alerts/assign', { ids: [alertId] })
+    // Balanced auto-allocation on arrival: all analysts are empty, so the first in stable order (Aisha) gets it.
+    expect([ws.alert.assigned_to, ws.alert.status]).toEqual(['u-aisha', 'WIP'])
+    expect((await call('u-omar', 'POST', '/alerts/assign', { ids: [alertId] })).status).toBe(400) // someone else's alert
+    await ok('u-hassan', 'POST', '/alerts/assign', { ids: [alertId], toUserId: 'u-omar' }) // the manager hands it over
     const bad = await call('u-omar', 'POST', `/alerts/${alertId}/act`, { kind: 'decide', decision: 'Confirmed Fraud', subClass: 'External fraud', rationale: '' })
     expect(bad.status).toBe(400) // rationale mandatory
     await ok('u-omar', 'POST', `/alerts/${alertId}/act`, { kind: 'decide', decision: 'Confirmed Fraud', subClass: 'External fraud', rationale: 'Victim funds moved out within minutes.' })

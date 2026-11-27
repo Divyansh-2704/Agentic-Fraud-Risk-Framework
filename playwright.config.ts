@@ -13,6 +13,7 @@ const serverEnv: Record<string, string> = {
   ...(process.env as Record<string, string>),
   PORT: API_PORT,
   DATABASE_URL: testDb,
+  AI_AGENT_DISABLED: '1', // UI tests never call a real LLM
 }
 
 export default defineConfig({
