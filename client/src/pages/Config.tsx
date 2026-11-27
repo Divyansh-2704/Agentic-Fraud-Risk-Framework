@@ -92,7 +92,7 @@ export function ConfigPage() {
           </Card>
           <Card title="AI disposition agent" actions={isSuper && <button className="btn btn-sm btn-primary" onClick={() => save('aiAgent')}>Save</button>}>
             {(() => {
-              const v = { enabled: true, autoAnalyse: true, model: 'anthropic/claude-sonnet-5.5', reasoningEffort: 'medium', ...(cfg.aiAgent ?? {}) }
+              const v = { enabled: true, autoAnalyse: true, model: 'anthropic/claude-sonnet-5.5', fallbackModel: 'baidu/ernie-5.5-flash-preview:free', reasoningEffort: 'medium', ...(cfg.aiAgent ?? {}) }
               const set = (patch: object) => setCfg({ ...cfg, aiAgent: { ...v, ...patch } })
               const st = ai.data
               return (
@@ -101,9 +101,10 @@ export function ConfigPage() {
                   <label className="check"><input type="checkbox" disabled={!isSuper} checked={v.autoAnalyse} onChange={(e) => set({ autoAnalyse: e.target.checked })} /> Analyse every new alert when it arrives</label>
                   <div className="row" style={{ alignItems: 'flex-end' }}>
                     <Field label="OpenRouter model"><input className="input" style={{ width: 280 }} list="ai-models" disabled={!isSuper} value={v.model} onChange={(e) => set({ model: e.target.value.trim() })} /></Field>
-                    <datalist id="ai-models">{['anthropic/claude-sonnet-5.5', 'anthropic/claude-opus-5.5', 'anthropic/claude-haiku-5.5'].map((m) => <option key={m} value={m} />)}</datalist>
+                    <datalist id="ai-models">{['anthropic/claude-sonnet-5.5', 'anthropic/claude-opus-5.5', 'anthropic/claude-haiku-5.5', 'baidu/ernie-5.5-flash-preview:free'].map((m) => <option key={m} value={m} />)}</datalist>
                     <Field label="Reasoning effort"><Select disabled={!isSuper} value={v.reasoningEffort} placeholder="" onChange={(x) => set({ reasoningEffort: x })} options={['none', 'low', 'medium', 'high'].map((x) => ({ value: x, label: x }))} /></Field>
                   </div>
+                  <Field label="Fallback model (used when the main model cannot answer, e.g. no OpenRouter credits; empty = off)"><input className="input" style={{ width: 360 }} list="ai-models" disabled={!isSuper} value={v.fallbackModel} onChange={(e) => set({ fallbackModel: e.target.value.trim() })} /></Field>
                   {st && <div className="small">
                     <div>API key: {st.state.configured ? <b style={{ color: 'var(--ok)' }}>set</b> : <b style={{ color: 'var(--orange-700)' }}>missing: add OPENROUTER_API_KEY to the server settings</b>}</div>
                     <div>Presidio masking service: {st.masking.ok ? <b style={{ color: 'var(--ok)' }}>running ({st.masking.spacy_model})</b> : <b style={{ color: 'var(--orange-700)' }}>not reachable: nothing is sent to the LLM until it runs</b>}</div>
