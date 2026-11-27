@@ -3,7 +3,7 @@
 import express from 'express'
 import { createApp } from './routes.js'
 import { advisoryLock, DATABASE_URL, dbInfo, get, initDb, LOCKS, NOT_CONFIGURED, refreshCache, tx } from './db.js'
-import { kick as kickAiQueue } from './services/ai.js'
+import { kick as kickAiQueue, maskingHealth } from './services/ai.js'
 import { migrateConfig, seedAll } from './seed.js'
 
 const hasUsers = async () => !!(await get('SELECT 1 AS x FROM users LIMIT 1'))
@@ -31,7 +31,8 @@ function ensureSeeded(): Promise<void> {
 
 const app = express()
 
-// Diagnostics (no data exposed): runtime, database server and seeding status.
+// Diagnostics (no data exposed): runtime, database server, seeding status and the AI agent's dependencies
+// (OpenRouter key present, Presidio masking service reachable). Works even before a database is connected.
 app.get('/api/health', async (_req, res) => {
   let users: number | string
   try {
@@ -39,8 +40,9 @@ app.get('/api/health', async (_req, res) => {
     await initDb()
     users = Number((await get<{ n: number }>('SELECT COUNT(*) AS n FROM users'))!.n)
   } catch (e: any) { users = String(e?.message ?? e) }
+  const ai = { openrouterKey: !!process.env.OPENROUTER_API_KEY, maskingUrl: process.env.MASKING_URL ? 'set' : 'default (local :5055)', masking: await maskingHealth() }
   res.status(typeof users === 'number' ? 200 : 503)
-    .json({ ok: !seedError && typeof users === 'number', node: process.version, vercel: !!process.env.VERCEL, database: 'postgresql', db: dbInfo(), users, seedError })
+    .json({ ok: !seedError && typeof users === 'number', node: process.version, vercel: !!process.env.VERCEL, database: 'postgresql', db: dbInfo(), users, seedError, ai })
 })
 
 app.use((_req, res, next) => {

@@ -126,7 +126,7 @@ export async function maskWithPresidio(data: unknown): Promise<Masked> {
 
 export async function maskingHealth() {
   try {
-    const r = await fetch(new URL('health', maskingBase()), { signal: AbortSignal.timeout(4000) })
+    const r = await fetch(new URL('health', maskingBase()), { signal: AbortSignal.timeout(20_000) }) // allows a Python cold start
     return r.ok ? { ok: true, ...(await r.json() as object) } : { ok: false, error: `HTTP ${r.status}` }
   } catch (e: any) { return { ok: false, error: String(e?.cause?.code ?? e?.message ?? e) } }
 }
